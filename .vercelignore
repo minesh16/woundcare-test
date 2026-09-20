@@ -1,0 +1,13 @@
+# Dependencies (Vercel installs fresh in the cloud build)
+node_modules
+
+# Generated native projects — not used by the web build
+ios
+android
+
+# Local build artifacts / caches
+.expo
+dist
+.git
+.vscode
+.claude

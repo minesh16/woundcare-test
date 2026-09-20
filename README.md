@@ -1,56 +1,116 @@
-# Welcome to your Expo app 👋
+# WoundCare Demo (Expo)
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Project path: `/Users/minesh/Agents/woundcare-test` (moved from OneDrive to avoid apostrophe path issues with CocoaPods).
 
-## Get started
+Research prototype mobile app for the La Trobe AI Innovation Ventures Program. Implements the 4-step wound assessment demo flow:
 
-1. Install dependencies
+1. Capture wound photo (optional 20c coin for scale)
+2. On-device OpenCV tissue/area analysis
+3. Body-map location picker
+4. Diagnostic questions → transparent rule-based demo result
 
-   ```bash
-   npm install
-   ```
+**This is not a medical device and is not for clinical use.**
 
-2. Start the app
+## Requirements
 
-   ```bash
-   npx expo start
-   ```
+- Node.js 20+
+- For native OpenCV: a **custom dev client** (Expo Go is not supported for `react-native-fast-opencv`)
+- Xcode (iOS) and/or Android Studio (Android) for local native builds
 
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## Setup
 
 ```bash
-npm run reset-project
+npm install
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## Run (development)
 
-### Other setup steps
+### Web (browser camera + server-side OpenCV)
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+```bash
+npm run web
+```
 
-## Learn more
+`npm run web` (plain Metro) serves the UI only — there is no `/api` route, so the
+analyser transparently falls back to the deterministic demo engine.
 
-To learn more about developing your project with Expo, look at the following resources:
+To exercise the real web flow (browser camera + server OpenCV) locally, run the
+static export and the serverless function together with the Vercel CLI:
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```bash
+npx vercel dev
+```
 
-## Join the community
+On web the app captures via the browser camera (`getUserMedia`, HTTPS required) and
+POSTs the photo to the `api/analyze.ts` serverless function, which runs OpenCV.js
+(WASM) and returns the same `CvResult` shape used natively.
 
-Join our community of developers creating universal apps.
+### Deploy the web build (new Vercel project)
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+1. Import this repo as a **new Vercel project**, framework preset **Other**.
+2. Vercel reads [`vercel.json`](vercel.json): build `npx expo export -p web`, output
+   `dist/`, and deploys `api/analyze.ts` as a Node serverless function.
+3. (Optional) set `EXPO_PUBLIC_ANALYZE_URL` if the function lives on another origin;
+   it defaults to the same-origin `/api/analyze`.
+
+**Web is not full parity with native.** Browser image quality varies, depth is still
+not measured (2D limitation, by design), and tissue segmentation remains demo-grade.
+Native dev-client distribution stays the right path for full-feature MVP testing.
+
+### Native dev client (recommended)
+
+Build and install a development client once:
+
+```bash
+# Local build (Mac + simulator/device)
+npx expo run:ios
+# or
+npx expo run:android
+
+# Or cloud build via EAS
+npx eas build --profile development --platform ios
+npx eas build --profile development --platform android
+```
+
+Then start Metro:
+
+```bash
+npm start
+```
+
+Open the project in your installed dev client.
+
+## Demo script (assessor walkthrough)
+
+1. Open app → read disclaimer → check consent → **Start assessment**
+2. **Capture** a wound image (or pick from gallery). Toggle coin reference if a 20c coin is visible.
+3. Review **analysis** overlay, tissue bars, area, and depth limitation note.
+4. Select **body location** on front/back map.
+5. Answer **questions** (duration, exudate, pain, warmth).
+6. Review **result** rationale, save JSON report, or start a new scan.
+
+## Project structure
+
+```
+src/app/           Expo Router screens
+src/cv/            OpenCV pipeline + fallback
+src/decision/      Types + deterministic rules engine
+src/components/    UI building blocks
+src/store/         Zustand session store
+```
+
+## Testing checklist
+
+- [ ] iOS dev client: capture → analyse → result under 2 minutes
+- [ ] Android dev client: same happy path
+- [ ] Gallery fallback when camera denied
+- [ ] Coin toggle: cm² when detected, relative px² when not
+- [ ] Result rationale lists triggered rules
+
+## Notes
+
+- Depth is **not** measured from a single 2D photo by design.
+- OpenCV tissue colours are **demo-grade** colour segmentation, not diagnostic classification.
+- Native runs OpenCV on-device (`react-native-fast-opencv`); web runs the same pipeline
+  server-side via OpenCV.js in a Vercel function (`api/analyze.ts`).
+- Frame this build as Assessment 3 technical feasibility for a clinician-in-the-loop repositioning — not a consumer diagnostic product.

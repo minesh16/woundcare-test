@@ -1,18 +1,26 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { useColorScheme } from 'react-native';
+import { Stack } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 
-import { AnimatedSplashOverlay } from '@/components/animated-icon';
-import AppTabs from '@/components/app-tabs';
+import { AppColors } from '@/constants/appTheme';
 
-SplashScreen.preventAutoHideAsync();
-
-export default function TabLayout() {
-  const colorScheme = useColorScheme();
+export default function RootLayout() {
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <AnimatedSplashOverlay />
-      <AppTabs />
-    </ThemeProvider>
+    <>
+      <StatusBar style="dark" />
+      <Stack
+        screenOptions={{
+          headerStyle: { backgroundColor: AppColors.white },
+          headerTintColor: AppColors.navy,
+          headerTitleStyle: { fontWeight: '700' },
+          contentStyle: { backgroundColor: AppColors.background },
+        }}>
+        <Stack.Screen name="index" options={{ headerShown: false }} />
+        <Stack.Screen name="capture" options={{ title: 'Capture wound' }} />
+        <Stack.Screen name="analyze" options={{ title: 'Analyse image' }} />
+        <Stack.Screen name="location" options={{ title: 'Wound location' }} />
+        <Stack.Screen name="questions" options={{ title: 'Questions' }} />
+        <Stack.Screen name="result" options={{ title: 'Assessment result' }} />
+      </Stack>
+    </>
   );
 }
