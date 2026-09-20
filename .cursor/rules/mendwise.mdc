@@ -1,0 +1,28 @@
+---
+description: MendWise architecture, guardrails, and where to read context
+alwaysApply: true
+---
+
+# MendWise — project rules
+
+Wound-assessment app grounded in two clinical guides (Australian Govt CWCS + Mölnlycke).
+Full context: `docs/MendWise_Assessment_Build_Spec.md`; current state + next task: `docs/HANDOFF.md`.
+Read both before non-trivial work. This is a **research prototype — not a medical device**.
+
+## The cage (do not violate)
+- **Determinism is authoritative.** The dressing/referral decision comes ONLY from the deterministic engine in `src/decision/engine.ts` (CWCS 26-pathway table + Mölnlycke triggers). AI never emits a pathway.
+- **AI is caged.** SAM 2 = boundary only; OpenCV HSI = tissue % only; frontier VLM = strict-JSON enums only (`generateObject` + Zod, `temperature: 0`); frontier LLM = narrate already-decided facts only.
+- **Additive, never destructive.** New work goes behind an `assessmentV2` flag + `/api/v1/assessments/*`; keep the existing capture→analyze→questions→result flow working.
+- **Conservative by default.** No marker / low confidence / conflicting signals → "incomplete → retake or escalate".
+- **No model fine-tuning.** Zero-shot models only.
+
+## Engine invariants
+- Keep `src/decision/engine.ts` a single self-contained runtime file (types via `import type` from `engine.types.ts`) so `npm run test:rules` runs under `node --experimental-strip-types` with no build step.
+- Never regress the engine: `npm run test:rules` must stay green and `npm run typecheck` must not add errors (one pre-existing error in `src/components/app-tabs.web.tsx` is unrelated).
+- The 26 CWCS dressing strings are transcribed from a PDF image — verify against the source before graded use.
+
+## Frontier models
+- Route VLM + LLM through **Vercel AI Gateway** (AI SDK `ai@^6`, `provider/model` strings, OIDC auth). Resolve model IDs via `getAvailableModels()`; don't hardcode. SAM 2 is NOT on the gateway — separate GPU endpoint (Replicate/Modal).
+
+## Expo
+- Expo SDK 57 — read https://docs.expo.dev/versions/v57.0.0/ before writing Expo code (see `AGENTS.md`).

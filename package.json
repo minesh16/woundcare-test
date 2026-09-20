@@ -52,7 +52,7 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
-    "test:rules": "node --experimental-strip-types scripts/test-rules.mjs"
+    "test:rules": "node --experimental-strip-types scripts/test-rules.mts"
   },
   "private": true
 }

@@ -6,6 +6,55 @@ import {
 } from '@/decision/types';
 
 import { BODY_ZONE_LABELS } from '@/constants/bodyZones';
+import { evaluate } from './engine';
+import type { EngineInputs } from './engine.types';
+
+/**
+ * Adapt the current demo capture/questionnaire into the deterministic CWCS/
+ * Mölnlycke engine inputs. Mappings marked "provisional" are placeholders that
+ * the Phase 2 caged-VLM + structured Q&A pipeline will replace with real signals
+ * (perfusion/ABPI, explicit infection, epithelial tissue, etc.).
+ */
+function toEngineInputs(session: ScanSession): EngineInputs {
+  const { cv, answers } = session;
+
+  const tissue = {
+    necrosis: cv?.necrosisPercent ?? 0,
+    slough: cv?.sloughPercent ?? 0,
+    granulation: cv?.granulationPercent ?? 0,
+    epithelial: 0, // Phase 1: add epithelial detection to the CV layer.
+    other: cv?.otherPercent ?? 0,
+  };
+
+  const exudate =
+    answers.exudate === 'heavy'
+      ? 'high'
+      : answers.exudate === 'moderate'
+        ? 'moderate'
+        : answers.exudate === 'none'
+          ? 'low'
+          : undefined;
+
+  // Provisional infection proxy from available demo signals.
+  const infection =
+    answers.warmth === 'yes' || answers.exudate === 'heavy'
+      ? 'yes'
+      : answers.warmth === 'no'
+        ? 'no'
+        : undefined;
+
+  return {
+    tissue,
+    perfusion: 'unknown', // Phase 2: derive from ABPI/perfusion Q&A.
+    exudate,
+    infection,
+    cvConfidence: cv?.confidence,
+    markerFound: cv?.coinDetected,
+    molnlycke: {
+      diabetes: answers.diabetes === 'yes',
+    },
+  };
+}
 
 function classifyWound(session: ScanSession): Classification {
   const { answers, cv } = session;
@@ -123,15 +172,49 @@ function buildRationale(session: ScanSession, classification: Classification, ur
 
 export function assess(session: ScanSession): AssessmentResult {
   const classification = classifyWound(session);
-  const urgency = assessUrgency(session);
-  const dressing = dressingCategory(session, urgency);
+  let urgency = assessUrgency(session);
+  const rationale = buildRationale(session, classification, urgency);
+
+  // Deterministic guideline engine (CWCS dressing + Mölnlycke referrals).
+  const engine = evaluate(toEngineInputs(session));
+
+  // An urgent guideline referral can raise the overall urgency.
+  const hasUrgentReferral = engine.referrals.some((r) => r.urgency === 'urgent');
+  if (hasUrgentReferral) {
+    urgency = 'immediate';
+  }
+
+  // Dressing category now comes from the CWCS pathway when the axes are known.
+  const dressing =
+    engine.cwcsPathwayId !== null
+      ? `CWCS pathway ${engine.cwcsPathwayId} — ${engine.axes.tissue}, ${engine.axes.exudate} exudate, infection: ${engine.axes.infection}. ` +
+        `Primary: ${engine.primary.join('; ')}.` +
+        (engine.secondary.length ? ` Secondary: ${engine.secondary.join('; ')}.` : '')
+      : dressingCategory(session, urgency);
+
+  for (const flag of engine.referrals) {
+    rationale.push(`Referral (${flag.urgency}): ${flag.message}`);
+  }
+  for (const note of engine.notes) {
+    rationale.push(note);
+  }
+  if (engine.status === 'incomplete' && engine.incompleteReasons.length > 0) {
+    rationale.push(`Assessment incomplete: ${engine.incompleteReasons.join(' ')}`);
+  }
 
   return {
     classification,
     urgency,
     dressingCategory: dressing,
-    seekMedicalAttention: urgency !== 'routine',
-    rationale: buildRationale(session, classification, urgency),
+    seekMedicalAttention: urgency !== 'routine' || hasUrgentReferral,
+    rationale,
+    cwcsPathwayId: engine.cwcsPathwayId,
+    tissueType: engine.axes.tissue,
+    primaryDressings: engine.primary,
+    secondaryDressings: engine.secondary,
+    referrals: engine.referrals,
+    engineStatus: engine.status,
+    rulesVersion: engine.rulesVersion,
   };
 }
 

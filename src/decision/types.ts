@@ -59,6 +59,14 @@ export type AssessmentResult = {
   dressingCategory: string;
   rationale: string[];
   seekMedicalAttention: boolean;
+  // Phase 0 — CWCS/Mölnlycke deterministic engine output (optional; UI-safe).
+  cwcsPathwayId?: number | null;
+  tissueType?: string | null;
+  primaryDressings?: string[];
+  secondaryDressings?: string[];
+  referrals?: { urgency: string; code: string; message: string }[];
+  engineStatus?: 'complete' | 'incomplete';
+  rulesVersion?: string;
 };
 
 export type ScanSession = {
