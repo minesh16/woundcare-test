@@ -2,7 +2,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { router } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { useMemo } from 'react';
-import { Alert, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { DisclaimerFooter } from '@/components/DisclaimerFooter';
 import { PrimaryButton } from '@/components/PrimaryButton';
@@ -33,6 +33,10 @@ export default function ResultScreen() {
     [session.answers, session.bodyZone, session.cv],
   );
 
+  // Present once a V2 run has been made (from the comparison screen). It is a
+  // restatement of the decision above, never an addition to it.
+  const aiReport = (session.v2 as { report?: { patientSummary: string; source: string } } | null)?.report ?? null;
+
   const saveReport = async () => {
     saveCurrentReport(result);
     // Export carries both documents: the clinician-facing record and the plain
@@ -53,7 +57,22 @@ export default function ResultScreen() {
             : null,
         })
       : null;
-    const payload = JSON.stringify({ ...session, result, documents }, null, 2);
+    // The AI-composed report, when a V2 run produced one. It is an *addition*
+    // to the deterministic documents, never a replacement: the template is what
+    // the export can always be trusted to contain.
+    const v2 = session.v2 as { report?: { clinicianReport: string; patientSummary: string; source: string; model?: string } } | null;
+
+    const payload = JSON.stringify(
+      {
+        ...session,
+        result,
+        documents,
+        aiReport: v2?.report ?? null,
+        comparison: session.baseline ?? null,
+      },
+      null,
+      2,
+    );
     const path = `${FileSystem.cacheDirectory}mendwise-report-${session.id}.json`;
 
     await FileSystem.writeAsStringAsync(path, payload);
@@ -79,6 +98,18 @@ export default function ResultScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <ProgressHeader step={4} title="Your result" />
         <ResultPanel result={result} />
+
+        {aiReport ? (
+          <View style={styles.aiCard}>
+            <Text style={styles.aiLabel}>In plain words</Text>
+            <Text style={styles.aiBody}>{aiReport.patientSummary}</Text>
+            <Text style={styles.aiMeta}>
+              {aiReport.source === 'llm'
+                ? 'Written from the findings above and checked against them before being shown.'
+                : 'Written from the findings above using the standard wording.'}
+            </Text>
+          </View>
+        ) : null}
       </ScrollView>
 
       <View style={styles.footer}>
@@ -105,6 +136,31 @@ const styles = StyleSheet.create({
   content: {
     padding: 20,
     gap: 16,
+  },
+  aiCard: {
+    backgroundColor: AppColors.card,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: AppColors.border,
+    gap: 6,
+  },
+  aiLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: AppColors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  aiBody: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: AppColors.text,
+  },
+  aiMeta: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: AppColors.textSecondary,
   },
   footer: {
     paddingHorizontal: 20,

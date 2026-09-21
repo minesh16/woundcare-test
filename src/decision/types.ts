@@ -119,6 +119,13 @@ export type AssessmentResult = {
   areaCm2?: number | null;
 };
 
+/** The ungrounded comparison arm's output. Kept for the report, never for the decision. */
+export type BaselineComparison = {
+  text: string;
+  model?: string;
+  latencyMs?: number;
+};
+
 export type ScanSession = {
   id: string;
   createdAt: string;
@@ -129,6 +136,15 @@ export type ScanSession = {
   bodyZone: BodyZone | null;
   answers: QuestionnaireAnswers;
   result: AssessmentResult | null;
+  /**
+   * The assessmentV2 pipeline run (segmentation, tissue, caged VLM, engine
+   * result and the AI-composed report). Held on the session so it survives
+   * navigation and reaches the exported report — it used to live only in the
+   * compare screen's local state and was lost the moment you navigated away.
+   * Typed loosely here to keep this module free of a runtime import.
+   */
+  v2: Record<string, unknown> | null;
+  baseline: BaselineComparison | null;
 };
 
 export const defaultAnswers = (): QuestionnaireAnswers => ({
@@ -158,4 +174,6 @@ export const defaultSession = (): ScanSession => ({
   bodyZone: null,
   answers: defaultAnswers(),
   result: null,
+  v2: null,
+  baseline: null,
 });

@@ -13,9 +13,16 @@ import type { AssessmentState, ReportPair, StepOutcome, TissueSummary } from '@/
 
 const API_BASE = process.env.EXPO_PUBLIC_API_BASE ?? '';
 
-function url(path: string): string {
+/**
+ * Absolute URL for a V2 endpoint. Exported because a bare relative `fetch('/api/…')`
+ * works on web and silently fails on native, where there is no page origin —
+ * every V2 call must go through here.
+ */
+export function apiUrl(path: string): string {
   return `${API_BASE}${path}`;
 }
+
+const url = apiUrl;
 
 async function postJson<T>(path: string, body: unknown): Promise<T | null> {
   if (!ASSESSMENT_V2) return null;
@@ -70,6 +77,17 @@ export async function evaluateRemote(
     assessment_id: assessmentId ?? null,
   });
   return result?.result ?? null;
+}
+
+/** The deliberately ungrounded comparison arm. Never feeds the assessment. */
+export async function baselineRemote(base64: string): Promise<{
+  source: string;
+  text?: string;
+  reason?: string;
+  model?: string;
+  latencyMs?: number;
+} | null> {
+  return postJson('/api/v1/assessments/baseline', { base64 });
 }
 
 export async function composeReportRemote(body: {

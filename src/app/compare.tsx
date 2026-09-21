@@ -8,7 +8,7 @@ import { ProgressHeader } from '@/components/ProgressHeader';
 import { AppColors } from '@/constants/appTheme';
 import { ASSESSMENT_V2 } from '@/config/featureFlags';
 import { uriToBase64 } from '@/cv/opencvPipeline';
-import { runAssessmentStream } from '@/assessment/client';
+import { baselineRemote, runAssessmentStream } from '@/assessment/client';
 import type { AssessmentState, StepOutcome } from '@/assessment/state';
 import { assess } from '@/decision/rules';
 import { useSessionStore } from '@/store/sessionStore';
@@ -27,6 +27,7 @@ type Baseline = { source: string; text?: string; reason?: string; model?: string
 
 export default function CompareScreen() {
   const session = useSessionStore((state) => state.session);
+  const setV2Run = useSessionStore((state) => state.setV2Run);
   const [running, setRunning] = useState(false);
   const [steps, setSteps] = useState<StepOutcome[]>([]);
   const [baseline, setBaseline] = useState<Baseline | null>(null);
@@ -51,13 +52,9 @@ export default function CompareScreen() {
 
       // Both arms run against the same photo, at the same time.
       const [baselineResult, groundedResult] = await Promise.all([
-        fetch('/api/v1/assessments/baseline', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ base64 }),
-        })
-          .then((r) => (r.ok ? (r.json() as Promise<Baseline>) : null))
-          .catch(() => null),
+        // Goes through the shared client so it honours EXPO_PUBLIC_API_BASE —
+        // a bare relative fetch works on web and fails on native.
+        baselineRemote(base64),
         runAssessmentStream(
           {
             base64,
@@ -83,6 +80,16 @@ export default function CompareScreen() {
 
       setBaseline(baselineResult);
       setGrounded(groundedResult);
+
+      // Persist onto the session so the run — including the AI-composed report —
+      // survives navigation and reaches the exported report.
+      setV2Run(
+        groundedResult as unknown as Record<string, unknown> | null,
+        baselineResult?.text
+          ? { text: baselineResult.text, model: baselineResult.model, latencyMs: baselineResult.latencyMs }
+          : null,
+      );
+
       if (!groundedResult) {
         setError('The MendWise pipeline is not available here. Check that assessmentV2 is on and the API is reachable.');
       }
@@ -91,7 +98,7 @@ export default function CompareScreen() {
     } finally {
       setRunning(false);
     }
-  }, [session]);
+  }, [session, setV2Run]);
 
   const result = grounded?.result;
 
@@ -173,6 +180,20 @@ export default function CompareScreen() {
           )}
         </View>
 
+        {grounded?.report ? (
+          <View style={styles.column}>
+            <Text style={styles.columnTitle}>
+              Report written from the decided facts
+              {grounded.report.source === 'template' ? ' (standard template — the model was unavailable)' : ''}
+            </Text>
+            <Text style={styles.prose}>{grounded.report.patientSummary}</Text>
+            <Text style={styles.meta}>
+              Saved with your report. {grounded.report.model ? `Written by ${grounded.report.model}, ` : ''}
+              checked against the engine result before being shown.
+            </Text>
+          </View>
+        ) : null}
+
         <Text style={styles.footnote}>
           Both columns saw the same photograph. The difference is not fluency — it is that the right-hand column can be
           checked, repeated and audited, and the left-hand one cannot.
@@ -180,6 +201,11 @@ export default function CompareScreen() {
       </ScrollView>
 
       <View style={styles.footer}>
+        {grounded ? (
+          <Text style={styles.savedNote}>
+            This run is saved with your assessment — use “Save report” on the result screen to export it.
+          </Text>
+        ) : null}
         <PrimaryButton label="Back to result" variant="secondary" onPress={() => router.back()} />
         <DisclaimerFooter />
       </View>
@@ -208,5 +234,6 @@ const styles = StyleSheet.create({
   warning: { fontSize: 13, color: AppColors.warning },
   error: { fontSize: 13, color: AppColors.danger },
   footnote: { fontSize: 13, lineHeight: 20, color: AppColors.textSecondary, marginTop: 4 },
+  savedNote: { fontSize: 12, lineHeight: 18, color: AppColors.textSecondary, textAlign: 'center' },
   footer: { paddingHorizontal: 20, paddingBottom: 12, gap: 8 },
 });

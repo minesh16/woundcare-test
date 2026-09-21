@@ -4,6 +4,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 
 import {
   AssessmentResult,
+  BaselineComparison,
   BodyZone,
   CvResult,
   QuestionnaireAnswers,
@@ -20,6 +21,7 @@ type SessionState = {
   setCvResult: (cv: CvResult) => void;
   setBodyZone: (zone: BodyZone) => void;
   setAnswers: (answers: Partial<QuestionnaireAnswers>) => void;
+  setV2Run: (v2: Record<string, unknown> | null, baseline: BaselineComparison | null) => void;
   resetSession: () => void;
   saveCurrentReport: (result: AssessmentResult) => void;
 };
@@ -56,6 +58,16 @@ export const useSessionStore = create<SessionState>()(
           session: {
             ...state.session,
             answers: { ...state.session.answers, ...answers },
+          },
+        })),
+      setV2Run: (v2, baseline) =>
+        set((state) => ({
+          session: {
+            ...state.session,
+            // Only overwrite with a real result — a failed comparison run must
+            // not wipe a good one the user already has.
+            v2: v2 ?? state.session.v2,
+            baseline: baseline ?? state.session.baseline,
           },
         })),
       resetSession: () =>
