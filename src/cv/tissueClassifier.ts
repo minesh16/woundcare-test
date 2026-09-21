@@ -31,6 +31,7 @@ export type TissueBreakdown = {
   granulation: number;
   slough: number;
   necrosis: number;
+  epithelial: number;
   other: number;
 };
 
@@ -39,6 +40,13 @@ export function classifyPixel(r: number, g: number, b: number): keyof TissueBrea
 
   if (v < 45 && s < 80) {
     return 'necrosis';
+  }
+
+  // Epithelialising tissue: pale-pink new skin — high brightness, low/moderate
+  // saturation, red/pink hue. Checked before slough/granulation so brighter,
+  // washed-out pink edges aren't miscounted as (more-saturated) granulation.
+  if (v > 170 && s > 20 && s < 95 && (h <= 25 || h >= 330)) {
+    return 'epithelial';
   }
 
   if (h >= 15 && h <= 45 && s > 35 && v > 40) {
@@ -61,7 +69,7 @@ export function breakdownFromBuffer(
   channels: number,
   woundMask?: Uint8Array,
 ): TissueBreakdown {
-  const counts: TissueBreakdown = { granulation: 0, slough: 0, necrosis: 0, other: 0 };
+  const counts: TissueBreakdown = { granulation: 0, slough: 0, necrosis: 0, epithelial: 0, other: 0 };
   const pixelCount = buffer.length / channels;
   let considered = 0;
 
@@ -77,25 +85,31 @@ export function breakdownFromBuffer(
   }
 
   if (considered === 0) {
-    return { granulation: 25, slough: 25, necrosis: 25, other: 25 };
+    return { granulation: 20, slough: 20, necrosis: 20, epithelial: 20, other: 20 };
   }
 
   return {
     granulation: Math.round((counts.granulation / considered) * 100),
     slough: Math.round((counts.slough / considered) * 100),
     necrosis: Math.round((counts.necrosis / considered) * 100),
+    epithelial: Math.round((counts.epithelial / considered) * 100),
     other: Math.round((counts.other / considered) * 100),
   };
 }
 
 export function toPercentages(breakdown: TissueBreakdown) {
   const total =
-    breakdown.granulation + breakdown.slough + breakdown.necrosis + breakdown.other || 1;
+    breakdown.granulation +
+      breakdown.slough +
+      breakdown.necrosis +
+      breakdown.epithelial +
+      breakdown.other || 1;
 
   return {
     granulationPercent: Math.round((breakdown.granulation / total) * 100),
     sloughPercent: Math.round((breakdown.slough / total) * 100),
     necrosisPercent: Math.round((breakdown.necrosis / total) * 100),
+    epithelialPercent: Math.round((breakdown.epithelial / total) * 100),
     otherPercent: Math.round((breakdown.other / total) * 100),
   };
 }

@@ -7,7 +7,35 @@ import {
 
 import { BODY_ZONE_LABELS } from '@/constants/bodyZones';
 import { evaluate } from './engine';
-import type { EngineInputs } from './engine.types';
+import type { EngineInputs, PerfusionStatus } from './engine.types';
+import type { AbpiBand, PerfusionAnswer } from '@/decision/types';
+
+/** Map the perfusion questionnaire answer to the engine's perfusion status. */
+function toPerfusionStatus(answer: PerfusionAnswer | null): PerfusionStatus {
+  if (answer === 'normal') return 'non_ischaemic';
+  if (answer === 'reduced') return 'ischaemic';
+  return 'unknown';
+}
+
+/**
+ * Map an ABPI band to a representative numeric value so the Mölnlycke Step-3
+ * vascular triggers (ABPI < 0.5 → urgent; > 1.4 → TBPI) fire deterministically.
+ * Returns undefined when unknown/not provided so no false trigger occurs.
+ */
+function toAbpiValue(band: AbpiBand | null): number | undefined {
+  switch (band) {
+    case 'lt_0_5':
+      return 0.4;
+    case '0_5_to_0_8':
+      return 0.65;
+    case '0_8_to_1_3':
+      return 1.0;
+    case 'gt_1_4':
+      return 1.5;
+    default:
+      return undefined;
+  }
+}
 
 /**
  * Adapt the current demo capture/questionnaire into the deterministic CWCS/
@@ -22,7 +50,7 @@ function toEngineInputs(session: ScanSession): EngineInputs {
     necrosis: cv?.necrosisPercent ?? 0,
     slough: cv?.sloughPercent ?? 0,
     granulation: cv?.granulationPercent ?? 0,
-    epithelial: 0, // Phase 1: add epithelial detection to the CV layer.
+    epithelial: cv?.epithelialPercent ?? 0,
     other: cv?.otherPercent ?? 0,
   };
 
@@ -35,23 +63,32 @@ function toEngineInputs(session: ScanSession): EngineInputs {
           ? 'low'
           : undefined;
 
-  // Provisional infection proxy from available demo signals.
+  // Infection axis: prefer the explicit infection-signs answer; otherwise fall
+  // back to the provisional proxy from the remaining demo signals.
   const infection =
-    answers.warmth === 'yes' || answers.exudate === 'heavy'
+    answers.infectionSigns === 'yes'
       ? 'yes'
-      : answers.warmth === 'no'
+      : answers.infectionSigns === 'no'
         ? 'no'
-        : undefined;
+        : answers.warmth === 'yes' || answers.exudate === 'heavy'
+          ? 'yes'
+          : answers.warmth === 'no'
+            ? 'no'
+            : undefined;
+
+  const abpi = toAbpiValue(answers.abpiBand);
 
   return {
     tissue,
-    perfusion: 'unknown', // Phase 2: derive from ABPI/perfusion Q&A.
+    perfusion: toPerfusionStatus(answers.perfusion),
     exudate,
     infection,
     cvConfidence: cv?.confidence,
     markerFound: cv?.coinDetected,
     molnlycke: {
       diabetes: answers.diabetes === 'yes',
+      abpi,
+      spreadingErythemaOver2cm: answers.spreadingRedness === 'yes',
     },
   };
 }

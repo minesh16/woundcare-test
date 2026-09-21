@@ -3,10 +3,10 @@ import { Platform } from 'react-native';
 
 import { runOpenCvPipeline } from '@/cv/opencvNative';
 import { breakdownFromBuffer, toPercentages } from '@/cv/tissueClassifier';
-import { px2ToCm2 } from '@/cv/measureArea';
+import { px2ToCm2, pxPerCmFromCoinAreaPx2 } from '@/cv/measureArea';
 import { CvResult } from '@/decision/types';
 
-async function uriToBase64(uri: string): Promise<string> {
+export async function uriToBase64(uri: string): Promise<string> {
   const result = await manipulateAsync(uri, [{ resize: { width: 1024 } }], {
     compress: 0.85,
     format: SaveFormat.JPEG,
@@ -45,21 +45,25 @@ function runFallbackPipeline(base64: string, includeCoinReference: boolean): CvR
     granulation: 30 + (seed % 25),
     slough: 20 + (seed % 20),
     necrosis: 10 + (seed % 15),
+    epithelial: 5 + (seed % 10),
     other: 10 + (seed % 10),
   };
 
   const percentages = toPercentages(breakdown);
   const coinDetected = includeCoinReference && seed % 3 !== 0;
+  const coinAreaPx2 = pseudoArea * 0.18;
 
   return {
     ...percentages,
     areaPx2: pseudoArea,
-    areaCm2: coinDetected ? px2ToCm2(pseudoArea, pseudoArea * 0.18) : null,
+    areaCm2: coinDetected ? px2ToCm2(pseudoArea, coinAreaPx2) : null,
+    pxPerCm: coinDetected ? pxPerCmFromCoinAreaPx2(coinAreaPx2) : null,
     depthAssessed: false,
     confidence: 'low',
     overlayBase64: null,
     analysisEngine: 'fallback',
     coinDetected,
+    hsvCentroid: null,
   };
 }
 

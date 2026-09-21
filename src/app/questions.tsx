@@ -72,6 +72,75 @@ export default function QuestionsScreen() {
           ))}
         </QuestionCard>
 
+        <QuestionCard title="Signs of local infection?">
+          <Text style={styles.optionalHint}>
+            Two or more of: increasing pain, spreading redness, swelling, purulent discharge, odour.
+          </Text>
+          {(['yes', 'no'] as const).map((option) => (
+            <OptionButton
+              key={`infection-${option}`}
+              label={option === 'yes' ? 'Yes' : 'No'}
+              value={option}
+              selected={answers.infectionSigns === option}
+              onSelect={(value) => setAnswers({ infectionSigns: value })}
+            />
+          ))}
+        </QuestionCard>
+
+        <QuestionCard title="Redness spreading more than 2 cm from the wound edge?">
+          <Text style={styles.optionalHint}>Suggests spreading infection → urgent review.</Text>
+          {(['yes', 'no'] as const).map((option) => (
+            <OptionButton
+              key={`spread-${option}`}
+              label={option === 'yes' ? 'Yes' : 'No'}
+              value={option}
+              selected={answers.spreadingRedness === option}
+              onSelect={(value) => setAnswers({ spreadingRedness: value })}
+            />
+          ))}
+        </QuestionCard>
+
+        <QuestionCard title="Tissue perfusion / circulation">
+          <Text style={styles.optionalHint}>
+            Mölnlycke Step 3. Reduced perfusion changes necrotic-tissue guidance and referral.
+          </Text>
+          {(['normal', 'reduced', 'unknown'] as const).map((option) => (
+            <OptionButton
+              key={`perfusion-${option}`}
+              label={
+                option === 'normal'
+                  ? 'Normal / palpable pulses'
+                  : option === 'reduced'
+                    ? 'Reduced / ischaemic signs'
+                    : "Don't know"
+              }
+              value={option}
+              selected={answers.perfusion === option}
+              onSelect={(value) => setAnswers({ perfusion: value })}
+            />
+          ))}
+          <Text style={styles.optionalLabel}>Known ABPI value (optional)</Text>
+          {(['lt_0_5', '0_5_to_0_8', '0_8_to_1_3', 'gt_1_4', 'unknown'] as const).map((option) => (
+            <OptionButton
+              key={`abpi-${option}`}
+              label={
+                option === 'lt_0_5'
+                  ? '< 0.5 (critical ischaemia)'
+                  : option === '0_5_to_0_8'
+                    ? '0.5 – 0.8'
+                    : option === '0_8_to_1_3'
+                      ? '0.8 – 1.3 (normal range)'
+                      : option === 'gt_1_4'
+                        ? '> 1.4 (incompressible)'
+                        : 'Not measured'
+              }
+              value={option}
+              selected={answers.abpiBand === option}
+              onSelect={(value) => setAnswers({ abpiBand: value })}
+            />
+          ))}
+        </QuestionCard>
+
         <QuestionCard title="Optional: diabetes or immunocompromise">
           <Text style={styles.optionalHint}>These increase urgency if infection signs are present.</Text>
           <Text style={styles.optionalLabel}>Diabetes</Text>

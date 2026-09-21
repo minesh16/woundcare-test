@@ -1,9 +1,9 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import jpeg from 'jpeg-js';
 
-import { px2ToCm2 } from '../src/cv/measureArea';
+import { px2ToCm2, pxPerCmFromCoinAreaPx2 } from '../src/cv/measureArea';
 import { breakdownFromBuffer, toPercentages } from '../src/cv/tissueClassifier';
-import { CvResult } from '../src/decision/types';
+import { CvResult, ImagePoint } from '../src/decision/types';
 import { Cv, CvMat, CvMatVector, ImageDataLike, loadCv } from './cv';
 
 const MAX_EDGE = 1024;
@@ -113,11 +113,25 @@ function runPipeline(cv: Cv, image: ImageDataLike, includeCoinReference: boolean
 
     let coinDetected = false;
     let areaCm2: number | null = null;
+    let pxPerCm: number | null = null;
     if (includeCoinReference) {
       const coinAreaPx2 = detectCoinAreaPx2(cv, gray);
       if (coinAreaPx2) {
         coinDetected = true;
         areaCm2 = px2ToCm2(areaPx2, coinAreaPx2);
+        pxPerCm = pxPerCmFromCoinAreaPx2(coinAreaPx2);
+      }
+    }
+
+    // HSV wound centroid (fractional coords) — SAM 2 point-prompt seed.
+    let hsvCentroid: ImagePoint | null = null;
+    if (largestIdx >= 0) {
+      const moments = cv.moments(contours.get(largestIdx));
+      if (moments.m00 > 0) {
+        hsvCentroid = {
+          xPct: moments.m10 / moments.m00 / targetWidth,
+          yPct: moments.m01 / moments.m00 / targetHeight,
+        };
       }
     }
 
@@ -133,11 +147,13 @@ function runPipeline(cv: Cv, image: ImageDataLike, includeCoinReference: boolean
       ...percentages,
       areaPx2,
       areaCm2,
+      pxPerCm,
       depthAssessed: false,
       confidence,
       overlayBase64,
       analysisEngine: 'opencv',
       coinDetected,
+      hsvCentroid,
     };
   } finally {
     contours?.delete();

@@ -15,7 +15,7 @@ import {
   Size,
 } from 'react-native-fast-opencv';
 
-import { px2ToCm2 } from '@/cv/measureArea';
+import { px2ToCm2, pxPerCmFromCoinAreaPx2 } from '@/cv/measureArea';
 import { breakdownFromBuffer, toPercentages } from '@/cv/tissueClassifier';
 import { CvResult } from '@/decision/types';
 
@@ -156,12 +156,14 @@ export function runOpenCvPipeline(
 
     let coinDetected = false;
     let areaCm2: number | null = null;
+    let pxPerCm: number | null = null;
 
     if (includeCoinReference) {
       const coinAreaPx2 = detectCoinAreaPx2(mats.gray);
       if (coinAreaPx2) {
         coinDetected = true;
         areaCm2 = px2ToCm2(areaPx2, coinAreaPx2);
+        pxPerCm = pxPerCmFromCoinAreaPx2(coinAreaPx2);
       }
     }
 
@@ -185,11 +187,15 @@ export function runOpenCvPipeline(
       ...percentages,
       areaPx2,
       areaCm2,
+      pxPerCm,
       depthAssessed: false,
       confidence,
       overlayBase64: overlay?.toBase64() ?? null,
       analysisEngine: 'opencv',
       coinDetected,
+      // SAM 2 point-prompt seed is computed server-side (web) from the HSV
+      // centroid; the native fallback path relies on the user-tap fallback.
+      hsvCentroid: null,
     };
   } finally {
     releaseAll(

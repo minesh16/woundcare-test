@@ -7,6 +7,7 @@ import { DisclaimerFooter } from '@/components/DisclaimerFooter';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { ProgressHeader } from '@/components/ProgressHeader';
 import { analyzeWoundImage } from '@/cv/opencvPipeline';
+import { segmentWoundUri, SegmentResult } from '@/cv/segment';
 import { formatArea } from '@/cv/measureArea';
 import { AppColors } from '@/constants/appTheme';
 import { useSessionStore } from '@/store/sessionStore';
@@ -16,6 +17,7 @@ export default function AnalyzeScreen() {
   const setCvResult = useSessionStore((state) => state.setCvResult);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [segment, setSegment] = useState<SegmentResult | null>(null);
 
   useEffect(() => {
     if (!session.imageUri) {
@@ -31,6 +33,12 @@ export default function AnalyzeScreen() {
         const result = await analyzeWoundImage(session.imageUri!, session.includeCoinReference);
         if (!cancelled) {
           setCvResult(result);
+        }
+        // Additive assessmentV2 pass: SAM 2 boundary seeded by the HSV centroid.
+        // No-op unless the flag is on and the endpoint is configured.
+        const seg = await segmentWoundUri(session.imageUri!, result.hsvCentroid);
+        if (!cancelled && seg) {
+          setSegment(seg);
         }
       } catch (analysisError) {
         if (!cancelled) {
@@ -82,9 +90,13 @@ export default function AnalyzeScreen() {
             <MetricBar label="Granulation" value={cv.granulationPercent} color="#D64545" />
             <MetricBar label="Slough" value={cv.sloughPercent} color="#E8B923" />
             <MetricBar label="Necrosis" value={cv.necrosisPercent} color="#4A3728" />
+            <MetricBar label="Epithelial" value={cv.epithelialPercent} color="#F4A9B8" />
             <MetricBar label="Other" value={cv.otherPercent} color="#94A3B8" />
 
             <Text style={styles.detail}>Area: {formatArea(cv.areaPx2, cv.areaCm2)}</Text>
+            {cv.pxPerCm ? (
+              <Text style={styles.detail}>Scale: {cv.pxPerCm.toFixed(1)} px/cm (marker calibrated)</Text>
+            ) : null}
             <Text style={styles.detail}>Depth: not assessed in this demo (2D photo limitation)</Text>
             <Text style={styles.detail}>
               Engine:{' '}
@@ -95,6 +107,16 @@ export default function AnalyzeScreen() {
                 : 'Fallback (demo)'}
             </Text>
             <Text style={styles.detail}>Confidence: {cv.confidence}</Text>
+            {segment?.source === 'sam2' ? (
+              <Text style={styles.detail}>
+                SAM 2 ({segment.model ?? 'meta/sam-2'}): {segment.masks.length} mask
+                {segment.masks.length === 1 ? '' : 's'}
+                {segment.selection
+                  ? ` — wound mask selected (${segment.selection.areaPx.toLocaleString()} px)`
+                  : ' — no wound mask matched centroid'}{' '}
+                ({segment.confidence})
+              </Text>
+            ) : null}
             {session.includeCoinReference ? (
               <Text style={styles.detail}>
                 Coin reference: {cv.coinDetected ? 'detected' : 'not detected — area shown as relative'}

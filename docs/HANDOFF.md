@@ -38,17 +38,25 @@
 
 ---
 
-## NEXT — Phase 1 (segmentation + measurement)  [start here]
+## IN PROGRESS — Phase 1 (segmentation + measurement)
 
 Goal: replace demo HSV with SAM 2 boundary + HSI tissue-% inside the mask + real cm² via a reference marker, and add photo-upload.
 
-1. **SAM 2 endpoint** — host on Replicate (fastest) or Modal; add `api/segment.ts` (Vercel Node) that calls it. Prompt point = HSV centroid (reuse `src/cv/tissueClassifier.ts` / `opencvPipeline.ts`) with a user-tap fallback. Return `{ mask, confidence }`.
-2. **Marker calibration** — detect ArUco/coin → `px_per_cm` → wound area cm² (extend `src/cv/measureArea.ts`).
-3. **HSI tissue-% inside the mask** — upgrade `tissueClassifier.ts`; **add the `epithelial` class** (currently `rules.ts` passes `epithelial: 0`), and thread it through `CvResult` + the analyze UI.
-4. **Perfusion + real infection inputs** — collect ABPI/perfusion + explicit infection signs in the questionnaire so `reconcileTissue`/`molnlyckeFlags` get real values (they're stubbed to `perfusion: 'unknown'` and a provisional infection proxy in `rules.ts` → `toEngineInputs`).
-5. **Photo upload** — add gallery/file upload alongside camera (repo already has `expo-image-picker`); same quality gate.
+1. ✅ **SAM 2 endpoint (Replicate, direct — NOT via AI Gateway)** — `api/segment.ts` (Vercel Node) + `api/_sam2.ts` adapter, gated by `assessmentV2`. Calls `POST /v1/models/{model}/predictions` with `Prefer: wait`. Returns `{ source, mask, masks, confidence, point, model }`. **Degrades conservatively** to `source:'unavailable'` (→ existing HSV mask) when `REPLICATE_API_TOKEN` is unset or the call fails.
+   - **Why not the gateway:** the Vercel AI Gateway only serves text/image/video/speech/embeddings/reranking models (Replicate is not a gateway provider). SAM 2 (segmentation) is off-gateway by design — the Vercel↔Replicate integration simply provisions `REPLICATE_API_TOKEN` into the project, which the adapter reads directly.
+   - **Model note:** `meta/sam-2` is the *automatic* mask generator — verified schema: input `{ image, points_per_side, pred_iou_thresh, stability_score_thresh, use_m2m }`; output `{ combined_mask, individual_masks }`. **No point/box prompt input.**
+   - ✅ **Wound-mask selection (Option 1)** — `api/_maskSelect.ts` (uses `pngjs`) fetches + decodes `individual_masks`, keeps masks whose pixel at the HSV centroid (`CvResult.hsvCentroid`) is set, and picks the **smallest** (tight wound vs whole-image blob). `segment.ts` returns `mask` = selected wound mask (else `combinedMask`), plus `selection {index, maskUrl, areaPx}`; selected → confidence `high`. Conservative: decode/fetch failures skipped, no match → `combinedMask`, all failure → HSV fallback.
+   - **Remaining:** confirm `REPLICATE_API_TOKEN` in Vercel env (`vercel env pull` for local) + `EXPO_PUBLIC_ASSESSMENT_V2=true`; render the selected mask overlay on the photo in `analyze.tsx` (currently a text summary); tune `SAM2_POINTS_PER_SIDE` / `SAM2_MAX_MASKS` for latency; optional future: swap `SAM2_REPLICATE_MODEL` to a point-promptable model to drop selection entirely.
+2. ✅ **Marker calibration** — `pxPerCmFromCoinAreaPx2` / `pxPerCmFromMarkerSide` in `src/cv/measureArea.ts`; `CvResult.pxPerCm` threaded through web + native pipelines + analyze UI. (ArUco detection itself not yet wired — coin path live; `pxPerCmFromMarkerSide` ready for it.)
+3. ✅ **HSI tissue-% + `epithelial` class** — added to `classifyPixel`/`TissueBreakdown`/`toPercentages` (`tissueClassifier.ts`), threaded through `CvResult` → analyze UI → `rules.ts` (`epithelial` now real, no longer `0`).
+4. ✅ **Perfusion + real infection inputs** — `perfusion`, `abpiBand`, `infectionSigns`, `spreadingRedness` added to `QuestionnaireAnswers` + `questions.tsx` (optional, non-blocking). `rules.ts → toEngineInputs` now feeds real `perfusion`, `molnlycke.abpi`, `molnlycke.spreadingErythemaOver2cm`, and an explicit `infection` axis (proxy retained only as fallback).
+5. ✅ **Photo upload** — already present in `capture.tsx` (`pickFromGallery` via `expo-image-picker`), same downstream analyze/quality path as camera.
 
-**Acceptance:** marker-in-frame image returns plausible `px_per_cm` + `wound_area_cm2` within tolerance of a hand-measured control; camera and upload both produce a mask; engine consumes real tissue/perfusion/infection.
+**Flag:** `EXPO_PUBLIC_ASSESSMENT_V2=true` enables the SAM 2 pass (`src/config/featureFlags.ts`). Default OFF keeps the existing demo flow byte-for-byte unchanged.
+
+**Acceptance:** marker-in-frame image returns plausible `px_per_cm` + `wound_area_cm2` within tolerance of a hand-measured control (needs a physical control shot); camera and upload both produce a mask (HSV today; SAM 2 once token set); engine consumes real tissue/perfusion/infection ✅.
+
+**Verify:** `npm run test:rules` (66/66) ✅ and `npm run typecheck` (only the pre-existing `app-tabs.web.tsx` error) ✅.
 
 Phases 2 (caged VLM via Vercel AI Gateway + report LLM + orchestrator) and 3 (SSE `run` + demo) follow — see the build spec §9.
 

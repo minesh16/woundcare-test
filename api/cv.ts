@@ -27,6 +27,13 @@ export interface CvSize {
   height: number;
 }
 
+/** Spatial image moments (subset) — used to derive a contour centroid. */
+export interface CvMoments {
+  m00: number;
+  m10: number;
+  m01: number;
+}
+
 export interface CvScalar {
   readonly __scalar: unique symbol;
 }
@@ -58,6 +65,7 @@ export interface Cv {
   findContours(image: CvMat, contours: CvMatVector, hierarchy: CvMat, mode: number, method: number): void;
   drawContours(image: CvMat, contours: CvMatVector, contourIdx: number, color: CvScalar, thickness?: number, lineType?: number): void;
   contourArea(contour: CvMat): number;
+  moments(array: CvMat, binaryImage?: boolean): CvMoments;
   HoughCircles(
     image: CvMat,
     circles: CvMat,
