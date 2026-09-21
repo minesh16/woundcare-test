@@ -17,10 +17,17 @@
  * SAM 2 model via SAM2_REPLICATE_MODEL.
  *
  * Configuration (env):
- *  - REPLICATE_API_TOKEN   (required; provisioned by the Vercel↔Replicate
- *                           integration; absent → not configured → degrade)
- *  - SAM2_REPLICATE_MODEL  (optional; defaults to meta/sam-2)
- *  - SAM2_POINTS_PER_SIDE  (optional integer; fewer points = faster, coarser)
+ *  - REPLICATE_API_TOKEN    (required; provisioned by the Vercel↔Replicate
+ *                            integration; absent → not configured → degrade)
+ *  - SAM2_REPLICATE_MODEL   (optional; defaults to meta/sam-2)
+ *  - SAM2_REPLICATE_VERSION (optional; pin a specific model version id and skip
+ *                            the latest-version lookup)
+ *  - SAM2_POINTS_PER_SIDE   (optional integer; fewer points = faster, coarser)
+ *
+ * NOTE — `meta/sam-2` is a *versioned* (community-style) model, not a Replicate
+ * "official" model, so predictions must be created via `POST /v1/predictions`
+ * with a `version` id (the `POST /v1/models/{owner}/{name}/predictions` endpoint
+ * is 404 for versioned models). We resolve the latest version once and cache it.
  */
 
 export type ImagePoint = { xPct: number; yPct: number };
@@ -45,6 +52,33 @@ function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
 }
 
+/** Cache of resolved latest-version ids, keyed by model, across warm invocations. */
+const versionCache = new Map<string, string>();
+
+/** Resolve a model's version id: pinned env → cache → GET /v1/models/{model}. */
+async function resolveModelVersion(model: string, token: string): Promise<string> {
+  const pinned = process.env.SAM2_REPLICATE_VERSION;
+  if (pinned) return pinned;
+
+  const cached = versionCache.get(model);
+  if (cached) return cached;
+
+  const response = await fetch(`${REPLICATE_BASE}/models/${model}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    throw new Error(`SAM 2 version lookup failed (${response.status}): ${detail.slice(0, 200)}`);
+  }
+  const body = (await response.json()) as { latest_version?: { id?: unknown } };
+  const versionId = body.latest_version?.id;
+  if (typeof versionId !== 'string' || !versionId) {
+    throw new Error(`SAM 2 model ${model} has no resolvable latest_version.`);
+  }
+  versionCache.set(model, versionId);
+  return versionId;
+}
+
 /**
  * Run SAM 2 automatic mask generation on an image. Returns the combined mask +
  * individual masks. Throws if the endpoint is not configured or the request
@@ -60,6 +94,7 @@ export async function runSam2Segmentation(args: {
 
   const model = process.env.SAM2_REPLICATE_MODEL ?? DEFAULT_MODEL;
   const pointsPerSide = Number(process.env.SAM2_POINTS_PER_SIDE ?? 32);
+  const version = await resolveModelVersion(model, token);
 
   // Input keys match the verified meta/sam-2 schema exactly.
   const input: Record<string, unknown> = {
@@ -68,17 +103,17 @@ export async function runSam2Segmentation(args: {
     use_m2m: true,
   };
 
+  // Versioned models create predictions at /v1/predictions with a `version`.
   // `Prefer: wait` blocks up to 60s for the prediction to resolve, avoiding a
-  // separate polling loop for the demo's request/response shape. Official
-  // models use the /models/{owner}/{name}/predictions endpoint.
-  const response = await fetch(`${REPLICATE_BASE}/models/${model}/predictions`, {
+  // separate polling loop for the demo's request/response shape.
+  const response = await fetch(`${REPLICATE_BASE}/predictions`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
       Prefer: 'wait',
     },
-    body: JSON.stringify({ input }),
+    body: JSON.stringify({ version, input }),
   });
 
   if (!response.ok) {
