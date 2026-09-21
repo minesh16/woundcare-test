@@ -16,10 +16,11 @@ export default function RootLayout() {
         }}>
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="capture" options={{ title: 'Capture wound' }} />
-        <Stack.Screen name="analyze" options={{ title: 'Analyse image' }} />
+        <Stack.Screen name="analyze" options={{ title: 'Your photo' }} />
         <Stack.Screen name="location" options={{ title: 'Wound location' }} />
         <Stack.Screen name="questions" options={{ title: 'Questions' }} />
-        <Stack.Screen name="result" options={{ title: 'Assessment result' }} />
+        <Stack.Screen name="result" options={{ title: 'Your result' }} />
+        <Stack.Screen name="compare" options={{ title: 'Grounded vs ungrounded' }} />
       </Stack>
     </>
   );

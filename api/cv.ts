@@ -61,6 +61,8 @@ export interface Cv {
   inRange(src: CvMat, lowerb: CvMat, upperb: CvMat, dst: CvMat): void;
   bitwise_or(src1: CvMat, src2: CvMat, dst: CvMat): void;
   morphologyEx(src: CvMat, dst: CvMat, op: number, kernel: CvMat): void;
+  dilate(src: CvMat, dst: CvMat, kernel: CvMat): void;
+  subtract(src1: CvMat, src2: CvMat, dst: CvMat): void;
   getStructuringElement(shape: number, ksize: CvSize): CvMat;
   findContours(image: CvMat, contours: CvMatVector, hierarchy: CvMat, mode: number, method: number): void;
   drawContours(image: CvMat, contours: CvMatVector, contourIdx: number, color: CvScalar, thickness?: number, lineType?: number): void;

@@ -8,7 +8,12 @@ import { DisclaimerFooter } from '@/components/DisclaimerFooter';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { ProgressHeader } from '@/components/ProgressHeader';
 import { ResultPanel } from '@/components/ResultPanel';
+import { ASSESSMENT_V2 } from '@/config/featureFlags';
+import { BODY_ZONE_LABELS } from '@/constants/bodyZones';
+import { renderTemplateReport } from '@/assessment/reportTemplate';
 import { assess } from '@/decision/rules';
+import { evaluate } from '@/decision/engine';
+import { toEngineInputs } from '@/decision/rules';
 import { AppColors } from '@/constants/appTheme';
 import { useSessionStore } from '@/store/sessionStore';
 
@@ -22,22 +27,46 @@ export default function ResultScreen() {
     [session.answers, session.bodyZone, session.cv],
   );
 
+  // The full engine result (not just the UI-facing subset) drives the export.
+  const engineResult = useMemo(
+    () => evaluate(toEngineInputs(session)),
+    [session.answers, session.bodyZone, session.cv],
+  );
+
   const saveReport = async () => {
     saveCurrentReport(result);
-    const payload = JSON.stringify({ ...session, result }, null, 2);
-    const path = `${FileSystem.cacheDirectory}woundcare-demo-${session.id}.json`;
+    // Export carries both documents: the clinician-facing record and the plain
+    // -English summary, rendered deterministically so a saved report never
+    // depends on a model being reachable.
+    const documents = engineResult
+      ? renderTemplateReport({
+          result: engineResult,
+          areaCm2: session.cv?.areaCm2 ?? null,
+          bodyZoneLabel: session.bodyZone ? BODY_ZONE_LABELS[session.bodyZone] : null,
+          tissuePct: session.cv
+            ? {
+                granulation: session.cv.granulationPercent,
+                slough: session.cv.sloughPercent,
+                necrosis: session.cv.necrosisPercent,
+                epithelial: session.cv.epithelialPercent,
+              }
+            : null,
+        })
+      : null;
+    const payload = JSON.stringify({ ...session, result, documents }, null, 2);
+    const path = `${FileSystem.cacheDirectory}mendwise-report-${session.id}.json`;
 
     await FileSystem.writeAsStringAsync(path, payload);
 
     if (await Sharing.isAvailableAsync()) {
       await Sharing.shareAsync(path, {
         mimeType: 'application/json',
-        dialogTitle: 'Share demo assessment report',
+        dialogTitle: 'Share assessment report',
       });
       return;
     }
 
-    Alert.alert('Report saved', `Demo report saved to ${path}`);
+    Alert.alert('Report saved', `Saved to ${path}`);
   };
 
   const startNewScan = () => {
@@ -48,12 +77,19 @@ export default function ResultScreen() {
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
-        <ProgressHeader step={4} title="Demo assessment result" />
+        <ProgressHeader step={4} title="Your result" />
         <ResultPanel result={result} />
       </ScrollView>
 
       <View style={styles.footer}>
-        <PrimaryButton label="Save demo report" onPress={saveReport} />
+        <PrimaryButton label="Save report" onPress={saveReport} />
+        {ASSESSMENT_V2 ? (
+          <PrimaryButton
+            label="Compare with an ungrounded AI answer"
+            variant="secondary"
+            onPress={() => router.push('/compare')}
+          />
+        ) : null}
         <PrimaryButton label="Start new scan" onPress={startNewScan} variant="secondary" />
         <DisclaimerFooter />
       </View>

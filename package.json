@@ -5,6 +5,8 @@
   "dependencies": {
     "@expo/ui": "~57.0.11",
     "@react-native-async-storage/async-storage": "2.2.0",
+    "@supabase/supabase-js": "^2.116.0",
+    "ai": "^6.0.286",
     "expo": "~57.0.14",
     "expo-camera": "~57.0.3",
     "expo-constants": "~57.0.12",
@@ -38,6 +40,7 @@
     "react-native-svg": "15.15.4",
     "react-native-web": "~0.21.0",
     "react-native-worklets": "0.10.1",
+    "zod": "^4.6.5",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
@@ -54,7 +57,13 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
-    "test:rules": "node --experimental-strip-types scripts/test-rules.mts"
+    "test:rules": "node --experimental-strip-types scripts/test-rules.mts",
+    "test:cage": "node --experimental-strip-types scripts/test-vlm-schema.mts",
+    "test:copy": "node --experimental-strip-types scripts/test-copy.mts",
+    "test": "npm run test:rules && npm run test:cage && npm run test:copy",
+    "check:gateway": "node --experimental-strip-types scripts/check-gateway.mts",
+    "db:migrate": "bash scripts/apply-migration.sh",
+    "smoke:live": "node --experimental-strip-types scripts/smoke-live.mts"
   },
   "private": true
 }

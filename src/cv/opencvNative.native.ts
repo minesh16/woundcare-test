@@ -21,6 +21,15 @@ import { CvResult } from '@/decision/types';
 
 const MAX_EDGE = 1024;
 
+/** Count set pixels in a single-channel mask buffer. */
+function countMaskPixels(mask: Uint8Array): number {
+  let n = 0;
+  for (let i = 0; i < mask.length; i += 1) {
+    if (mask[i] !== 0) n += 1;
+  }
+  return n;
+}
+
 function stripDataUri(base64: string): string {
   return base64.replace(/^data:image\/\w+;base64,/, '');
 }
@@ -151,7 +160,10 @@ export function runOpenCvPipeline(
     );
 
     const bgrBuffer = mats.blurred.toBuffer('uint8');
-    const tissue = breakdownFromBuffer(bgrBuffer.buffer, bgrBuffer.channels);
+    // Parity with the server pipeline: tissue composition is measured inside the
+    // wound mask only, so skin and background pixels can't reach the CWCS axis.
+    const maskBuffer = mats.combined.toBuffer('uint8');
+    const tissue = breakdownFromBuffer(bgrBuffer.buffer, bgrBuffer.channels, maskBuffer.buffer);
     const percentages = toPercentages(tissue);
 
     let coinDetected = false;
@@ -196,6 +208,12 @@ export function runOpenCvPipeline(
       // SAM 2 point-prompt seed is computed server-side (web) from the HSV
       // centroid; the native fallback path relies on the user-tap fallback.
       hsvCentroid: null,
+      maskSource: 'hsv',
+      maskAreaPx: countMaskPixels(maskBuffer.buffer),
+      // The periwound band needs a calibrated scale to size 4 cm in pixels; the
+      // native on-device pass is a capture-time gate, so it is measured on the
+      // server pipeline instead of here.
+      periwound: null,
     };
   } finally {
     releaseAll(

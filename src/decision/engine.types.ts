@@ -48,6 +48,58 @@ export type MolnlyckeInputs = {
   spreadingErythemaOver2cm?: boolean;
 };
 
+
+// ===========================================================================
+// Caged VLM features (Phase 2)
+//
+// Every field is an enum: the vision model is a feature EXTRACTOR, never a
+// decision-maker. `uncertain` is always available so the model is never forced
+// into a guess, and the deterministic reconciliation below treats `uncertain`
+// as "no information" rather than as evidence either way.
+// The runtime Zod mirror of these types lives in `vlm.schema.ts` — this file
+// stays type-only so `engine.ts` remains Node-runnable with no build step.
+// ===========================================================================
+
+/** Three-state observation: the model saw it, didn't see it, or couldn't tell. */
+export type Tri = 'present' | 'absent' | 'uncertain';
+
+export type EdgeType =
+  | 'healthy'
+  | 'rolled_epibole'
+  | 'undermined'
+  | 'callused'
+  | 'macerated'
+  | 'uncertain';
+
+export type VisualExudate = 'none' | 'low' | 'moderate' | 'high' | 'very_high' | 'uncertain';
+
+export type TissueCorroboration = 'agrees' | 'disagrees' | 'uncertain';
+
+export type ImageFlag = 'low_light' | 'blur' | 'no_marker';
+
+/** The five infection signs the VLM is asked to report (classic + subtle). */
+export type VlmInfectionSigns = {
+  erythema: Tri;
+  warmth: Tri;
+  purulent: Tri;
+  malodour: Tri;
+  friableGranulation: Tri;
+};
+
+export type VlmFeatures = {
+  infectionSigns: VlmInfectionSigns;
+  edgeType: EdgeType;
+  visualExudate: VisualExudate;
+  tissueCorroboration: TissueCorroboration;
+  imageFlags: ImageFlag[];
+};
+
+/** Periwound band measurements (HSI, Mölnlycke step 5). */
+export type PeriwoundInputs = {
+  rednessPct: number | null;
+  maceration: boolean | null;
+};
+
 export type EngineInputs = {
   tissue: TissueBreakdown;
   perfusion?: PerfusionStatus;
@@ -56,6 +108,12 @@ export type EngineInputs = {
   molnlycke?: MolnlyckeInputs;
   cvConfidence?: Confidence;
   markerFound?: boolean;
+  /** Caged VLM features. Advisory only — see the reconciliation rules in engine.ts. */
+  vlm?: VlmFeatures;
+  /** Periwound band metrics from HSI. */
+  periwound?: PeriwoundInputs;
+  /** True when the user entered a wound size by hand, standing in for a marker. */
+  manualSizeProvided?: boolean;
 };
 
 export type ReferralUrgency = 'urgent' | 'mdt' | 'review';
@@ -85,6 +143,14 @@ export type DerivedAxes = {
 export type EngineResult = {
   status: 'complete' | 'incomplete';
   incompleteReasons: string[];
+  /**
+   * True when the axes resolved to a pathway but a safety gate withheld it
+   * (blur, no usable scale, or an unresolved tissue conflict). Distinguishes
+   * "we couldn't decide" from "we decided not to say" in the audit trail.
+   */
+  pathwayWithheld: boolean;
+  /** Stable codes for the gates that fired — the UI copy layer keys off these. */
+  gateCodes: string[];
   axes: DerivedAxes;
   cwcsPathwayId: number | null;
   primary: string[];

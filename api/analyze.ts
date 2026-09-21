@@ -3,7 +3,8 @@ import jpeg from 'jpeg-js';
 
 import { px2ToCm2, pxPerCmFromCoinAreaPx2 } from '../src/cv/measureArea';
 import { breakdownFromBuffer, toPercentages } from '../src/cv/tissueClassifier';
-import { CvResult, ImagePoint } from '../src/decision/types';
+import { CvResult, ImagePoint, Periwound } from '../src/decision/types';
+import { countMaskPixels, measurePeriwound } from './_tissueOps';
 import { Cv, CvMat, CvMatVector, ImageDataLike, loadCv } from './cv';
 
 const MAX_EDGE = 1024;
@@ -108,8 +109,13 @@ function runPipeline(cv: Cv, image: ImageDataLike, includeCoinReference: boolean
       }
     }
 
-    const tissue = breakdownFromBuffer(blurred.data, blurred.channels());
+    // Tissue composition is measured INSIDE the wound mask only. Classifying the
+    // whole frame would fold skin and background pixels into the CWCS tissue axis
+    // (and therefore into the pathway), so `combined` — the HSV wound mask, same
+    // dimensions as `blurred` — gates which pixels are counted.
+    const tissue = breakdownFromBuffer(blurred.data, blurred.channels(), combined.data);
     const percentages = toPercentages(tissue);
+    const maskAreaPx = countMaskPixels(combined.data);
 
     let coinDetected = false;
     let areaCm2: number | null = null;
@@ -122,6 +128,11 @@ function runPipeline(cv: Cv, image: ImageDataLike, includeCoinReference: boolean
         pxPerCm = pxPerCmFromCoinAreaPx2(coinAreaPx2);
       }
     }
+
+    // Periwound ring (Mölnlycke step 5 — 4 cm band around the wound edge). The
+    // band is only meaningful once we know the real-world scale, so with no
+    // marker we report null rather than guessing a pixel radius.
+    const periwound = measurePeriwound(cv, blurred, combined, pxPerCm);
 
     // HSV wound centroid (fractional coords) — SAM 2 point-prompt seed.
     let hsvCentroid: ImagePoint | null = null;
@@ -150,6 +161,9 @@ function runPipeline(cv: Cv, image: ImageDataLike, includeCoinReference: boolean
       pxPerCm,
       depthAssessed: false,
       confidence,
+      maskSource: 'hsv',
+      maskAreaPx,
+      periwound,
       overlayBase64,
       analysisEngine: 'opencv',
       coinDetected,

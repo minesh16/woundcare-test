@@ -10,9 +10,17 @@ import {
   evaluate,
   lookupPathway,
   molnlyckeFlags,
+  reconcileExudate,
+  reconcileInfection,
   reconcileTissue,
 } from '../src/decision/engine.ts';
-import type { ExudateLevel, Infection, TissueBreakdown, TissueType } from '../src/decision/engine.types.ts';
+import type {
+  ExudateLevel,
+  Infection,
+  TissueBreakdown,
+  TissueType,
+  VlmFeatures,
+} from '../src/decision/engine.types.ts';
 
 let passed = 0;
 let failed = 0;
@@ -123,6 +131,146 @@ check('no marker downgrades confidence', noMarker.confidence === 'medium' && noM
 const necE2E = evaluate({ tissue: bed({ necrosis: 60 }), exudate: 'high', infection: 'yes', perfusion: 'ischaemic', markerFound: true, cvConfidence: 'high' });
 check('e2e necrotic-ischaemic/high/infected → pathway 5', necE2E.cwcsPathwayId === 5, necE2E.cwcsPathwayId);
 check('e2e necrotic tissue adds mdt flag', necE2E.referrals.some((f) => f.code === 'necrotic_tissue'));
+
+// ===========================================================================
+// Phase 2 — reconciliation of caged VLM features
+// ===========================================================================
+
+function vlm(p: Partial<VlmFeatures> = {}): VlmFeatures {
+  return {
+    infectionSigns: {
+      erythema: 'uncertain',
+      warmth: 'uncertain',
+      purulent: 'uncertain',
+      malodour: 'uncertain',
+      friableGranulation: 'uncertain',
+    },
+    edgeType: 'uncertain',
+    visualExudate: 'uncertain',
+    tissueCorroboration: 'uncertain',
+    imageFlags: [],
+    ...p,
+  };
+}
+
+// --- Exudate axis ----------------------------------------------------------
+const exAnswered = reconcileExudate('moderate', vlm({ visualExudate: 'high' }));
+check('exudate: answer wins over image', exAnswered.exudate === 'moderate' && !exAnswered.downgrade);
+
+const exFar = reconcileExudate('low', vlm({ visualExudate: 'very_high' }));
+check('exudate: >1 band disagreement keeps answer but downgrades', exFar.exudate === 'low' && exFar.downgrade);
+
+const exFill = reconcileExudate(undefined, vlm({ visualExudate: 'high' }));
+check('exudate: image fills a missing answer, capped at medium', exFill.exudate === 'high' && exFill.confidenceCap === 'medium');
+
+const exNone = reconcileExudate(undefined, vlm({ visualExudate: 'uncertain' }));
+check('exudate: uncertain image carries no information', exNone.exudate === null);
+
+const exNoVlm = reconcileExudate('high', undefined);
+check('exudate: works with no VLM at all', exNoVlm.exudate === 'high' && !exNoVlm.downgrade);
+
+// --- Infection axis --------------------------------------------------------
+const infYes = reconcileInfection('yes', vlm());
+check('infection: answered yes → yes', infYes.infection === 'yes');
+
+const infPurulent = reconcileInfection(undefined, vlm({ infectionSigns: { ...vlm().infectionSigns, purulent: 'present' } }));
+check('infection: purulence alone → yes', infPurulent.infection === 'yes');
+
+const infTwoSigns = reconcileInfection(undefined, vlm({
+  infectionSigns: { ...vlm().infectionSigns, erythema: 'present', warmth: 'present' },
+}));
+check('infection: two classic signs → yes', infTwoSigns.infection === 'yes');
+
+const infOneSign = reconcileInfection(undefined, vlm({
+  infectionSigns: { ...vlm().infectionSigns, erythema: 'present' },
+}));
+check('infection: one sign alone is not enough → null', infOneSign.infection === null);
+
+const infOverride = reconcileInfection('no', vlm({
+  infectionSigns: { ...vlm().infectionSigns, purulent: 'present' },
+}));
+check('infection: purulence overrides a "no" answer', infOverride.infection === 'yes' && infOverride.notes.length > 0);
+
+const infNoWithSign = reconcileInfection('no', vlm({
+  infectionSigns: { ...vlm().infectionSigns, friableGranulation: 'present' },
+}));
+check('infection: answered no + a subtle sign → null, not no', infNoWithSign.infection === null);
+
+const infCleanNo = reconcileInfection('no', vlm());
+check('infection: answered no with nothing seen → no', infCleanNo.infection === 'no');
+
+const infVlmOnlyAbsent = reconcileInfection(undefined, vlm({
+  infectionSigns: {
+    erythema: 'absent', warmth: 'absent', purulent: 'absent', malodour: 'absent', friableGranulation: 'absent',
+  },
+}));
+check('infection: the VLM can never establish "no" on its own', infVlmOnlyAbsent.infection === null);
+
+// --- Tissue: the VLM may not change the class ------------------------------
+const tissueDisagree = evaluate({
+  tissue: bed({ granulation: 70 }), exudate: 'low', infection: 'no',
+  cvConfidence: 'high', vlm: vlm({ tissueCorroboration: 'disagrees' }),
+});
+check('tissue: VLM disagreement does not change the class', tissueDisagree.axes.tissue === 'granulating');
+check('tissue: VLM disagreement downgrades confidence', tissueDisagree.confidence === 'medium');
+check('tissue: VLM disagreement alone still yields a pathway', tissueDisagree.cwcsPathwayId !== null);
+
+const tissueDoubleDoubt = evaluate({
+  tissue: bed({ granulation: 4, slough: 3 }), exudate: 'low', infection: 'no',
+  vlm: vlm({ tissueCorroboration: 'disagrees' }),
+});
+check('tissue: weak measurement + VLM disagreement → incomplete', tissueDoubleDoubt.status === 'incomplete');
+check('tissue: that conflict is recorded as a gate code', tissueDoubleDoubt.gateCodes.includes('tissue_conflict'));
+
+// --- Safety gates ----------------------------------------------------------
+const blurred = evaluate({
+  tissue: bed({ granulation: 70 }), exudate: 'low', infection: 'no',
+  cvConfidence: 'high', vlm: vlm({ imageFlags: ['blur'] }),
+});
+check('gate: blur withholds the pathway', blurred.cwcsPathwayId === null && blurred.pathwayWithheld);
+check('gate: blur forces low confidence', blurred.confidence === 'low');
+check('gate: blur is recorded as a gate code', blurred.gateCodes.includes('blurred_image'));
+check('gate: blur yields no dressings', blurred.primary.length === 0 && blurred.secondary.length === 0);
+
+const noScale = evaluate({
+  tissue: bed({ granulation: 70 }), exudate: 'low', infection: 'no', markerFound: false,
+});
+check('gate: no scale withholds the pathway', noScale.cwcsPathwayId === null && noScale.gateCodes.includes('no_scale'));
+
+const manualSize = evaluate({
+  tissue: bed({ granulation: 70 }), exudate: 'low', infection: 'no',
+  markerFound: false, manualSizeProvided: true, cvConfidence: 'high',
+});
+check('gate: a hand-entered size satisfies the scale gate', manualSize.cwcsPathwayId !== null && !manualSize.pathwayWithheld);
+check('gate: hand-entered size keeps confidence', manualSize.confidence === 'high');
+
+const lowLight = evaluate({
+  tissue: bed({ granulation: 70 }), exudate: 'low', infection: 'no',
+  cvConfidence: 'high', vlm: vlm({ imageFlags: ['low_light'] }),
+});
+check('gate: low light downgrades but does not withhold', lowLight.confidence === 'medium' && lowLight.cwcsPathwayId !== null);
+
+// Withheld is distinct from never-resolved: both are incomplete, but only one
+// had a pathway to withhold. The audit trail must be able to tell them apart.
+check('gate: withheld is distinct from unresolved', blurred.pathwayWithheld === true && missing.pathwayWithheld === false);
+
+// --- Regression: absent VLM must not change any Phase-0 outcome ------------
+const phase0Cases: { tissue: Partial<TissueBreakdown>; exudate: ExudateLevel; infection: Infection }[] = [
+  { tissue: { granulation: 70 }, exudate: 'low', infection: 'no' },
+  { tissue: { slough: 70 }, exudate: 'moderate', infection: 'yes' },
+  { tissue: { necrosis: 60 }, exudate: 'high', infection: 'yes' },
+  { tissue: { epithelial: 80 }, exudate: 'low', infection: 'no' },
+];
+for (const c of phase0Cases) {
+  const withoutVlm = evaluate({ tissue: bed(c.tissue), exudate: c.exudate, infection: c.infection });
+  const withNeutralVlm = evaluate({ tissue: bed(c.tissue), exudate: c.exudate, infection: c.infection, vlm: vlm() });
+  check(
+    `regression: neutral VLM changes nothing (${Object.keys(c.tissue)[0]}/${c.exudate}/${c.infection})`,
+    withoutVlm.cwcsPathwayId === withNeutralVlm.cwcsPathwayId &&
+      withoutVlm.confidence === withNeutralVlm.confidence &&
+      withoutVlm.status === withNeutralVlm.status,
+  );
+}
 
 // --- Summary ---------------------------------------------------------------
 console.log(`\n${passed} passed, ${failed} failed (of ${passed + failed}).`);

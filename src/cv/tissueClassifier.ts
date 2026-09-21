@@ -113,3 +113,28 @@ export function toPercentages(breakdown: TissueBreakdown) {
     otherPercent: Math.round((breakdown.other / total) * 100),
   };
 }
+
+/**
+ * Periwound skin classes (Mölnlycke step 5 — the 4 cm band around the edge).
+ *
+ * Deliberately coarse: the deterministic engine only consumes "how much of the
+ * ring reads as red" and "is the ring waterlogged", and a caged VLM pass
+ * corroborates both. Anything finer would be over-claiming from HSV.
+ */
+export type PeriwoundClass = 'red' | 'macerated' | 'normal';
+
+export function classifyPeriwoundPixel(r: number, g: number, b: number): PeriwoundClass {
+  const { h, s, v } = rgbToHsv({ r, g, b });
+
+  // Erythema: saturated red/pink hue at normal-to-bright value.
+  if ((h <= 20 || h >= 340) && s > 70 && v > 60) {
+    return 'red';
+  }
+
+  // Maceration: soggy skin goes pale and desaturated but stays bright.
+  if (v > 180 && s < 40) {
+    return 'macerated';
+  }
+
+  return 'normal';
+}

@@ -1,4 +1,5 @@
 import { router } from 'expo-router';
+import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { DisclaimerFooter } from '@/components/DisclaimerFooter';
@@ -11,11 +12,12 @@ import { isQuestionnaireComplete, useSessionStore } from '@/store/sessionStore';
 export default function QuestionsScreen() {
   const answers = useSessionStore((state) => state.session.answers);
   const setAnswers = useSessionStore((state) => state.setAnswers);
+  const [clinicianFields, setClinicianFields] = useState(false);
 
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
-        <ProgressHeader step={3} title="Diagnostic questions" />
+        <ProgressHeader step={3} title="A few questions" />
 
         <QuestionCard title="Has the wound been present for more than 30 days?">
           {(['yes', 'no', 'unsure'] as const).map((option) => (
@@ -29,7 +31,7 @@ export default function QuestionsScreen() {
           ))}
         </QuestionCard>
 
-        <QuestionCard title="Is there exudate or pus?">
+        <QuestionCard title="Is fluid or pus coming from the wound?">
           {(['none', 'moderate', 'heavy'] as const).map((option) => (
             <OptionButton
               key={option}
@@ -100,18 +102,18 @@ export default function QuestionsScreen() {
           ))}
         </QuestionCard>
 
-        <QuestionCard title="Tissue perfusion / circulation">
+        <QuestionCard title="Blood flow to the area">
           <Text style={styles.optionalHint}>
-            Mölnlycke Step 3. Reduced perfusion changes necrotic-tissue guidance and referral.
+            Poor blood flow changes what should be done about dead tissue, and who should look at it.
           </Text>
           {(['normal', 'reduced', 'unknown'] as const).map((option) => (
             <OptionButton
               key={`perfusion-${option}`}
               label={
                 option === 'normal'
-                  ? 'Normal / palpable pulses'
+                  ? 'Normal — you can feel a pulse in the foot or limb'
                   : option === 'reduced'
-                    ? 'Reduced / ischaemic signs'
+                    ? 'Reduced — cold, pale or no pulse'
                     : "Don't know"
               }
               value={option}
@@ -119,26 +121,46 @@ export default function QuestionsScreen() {
               onSelect={(value) => setAnswers({ perfusion: value })}
             />
           ))}
-          <Text style={styles.optionalLabel}>Known ABPI value (optional)</Text>
-          {(['lt_0_5', '0_5_to_0_8', '0_8_to_1_3', 'gt_1_4', 'unknown'] as const).map((option) => (
-            <OptionButton
-              key={`abpi-${option}`}
-              label={
-                option === 'lt_0_5'
-                  ? '< 0.5 (critical ischaemia)'
-                  : option === '0_5_to_0_8'
-                    ? '0.5 – 0.8'
-                    : option === '0_8_to_1_3'
-                      ? '0.8 – 1.3 (normal range)'
-                      : option === 'gt_1_4'
-                        ? '> 1.4 (incompressible)'
-                        : 'Not measured'
-              }
-              value={option}
-              selected={answers.abpiBand === option}
-              onSelect={(value) => setAnswers({ abpiBand: value })}
-            />
-          ))}
+
+          {/* The ABPI reading comes from a clinician's test — most people will
+              not have the number, so it sits behind the clinician toggle rather
+              than as a question that reads as unanswerable. */}
+          <Pressable
+            onPress={() => setClinicianFields((v) => !v)}
+            style={styles.toggle}
+            accessibilityRole="button"
+          >
+            <Text style={styles.toggleText}>
+              {clinicianFields ? 'Hide clinician fields' : 'I have a circulation test result'}
+            </Text>
+          </Pressable>
+
+          {clinicianFields ? (
+            <>
+              {/* clinician-copy — these are the clinical band labels a
+                  clinician reads off their own measurement. */}
+              <Text style={styles.optionalLabel}>ABPI (ankle–brachial pressure index)</Text>
+              {(['lt_0_5', '0_5_to_0_8', '0_8_to_1_3', 'gt_1_4', 'unknown'] as const).map((option) => (
+                <OptionButton
+                  key={`abpi-${option}`}
+                  label={
+                    option === 'lt_0_5'
+                      ? '< 0.5 (critical ischaemia)'
+                      : option === '0_5_to_0_8'
+                        ? '0.5 – 0.8'
+                        : option === '0_8_to_1_3'
+                          ? '0.8 – 1.3 (normal range)'
+                          : option === 'gt_1_4'
+                            ? '> 1.4 (incompressible)'
+                            : 'Not measured'
+                  }
+                  value={option}
+                  selected={answers.abpiBand === option}
+                  onSelect={(value) => setAnswers({ abpiBand: value })}
+                />
+              ))}
+            </>
+          ) : null}
         </QuestionCard>
 
         <QuestionCard title="Optional: diabetes or immunocompromise">
@@ -213,6 +235,20 @@ const styles = StyleSheet.create({
   },
   painChipTextSelected: {
     color: AppColors.navy,
+  },
+  toggle: {
+    alignSelf: 'flex-start',
+    marginTop: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: AppColors.border,
+  },
+  toggleText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: AppColors.textSecondary,
   },
   optionalHint: {
     fontSize: 13,

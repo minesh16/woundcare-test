@@ -27,9 +27,11 @@ import type {
   ReferralFlag,
   TissueBreakdown,
   TissueType,
+  VisualExudate,
+  VlmFeatures,
 } from './engine.types';
 
-export const CWCS_RULES_VERSION = 'cwcs-2024.1';
+export const CWCS_RULES_VERSION = 'cwcs-2024.1+recon.1';
 
 /** A tissue class must occupy at least this % of the wound bed to count as "present". */
 export const TISSUE_PRESENCE_THRESHOLD = 10;
@@ -207,6 +209,126 @@ export function reconcileTissue(
 }
 
 // ===========================================================================
+// Reconciliation — VLM corroboration (Phase 2)
+//
+// The cage in one sentence: the VLM can lower our confidence, raise an
+// infection suspicion, and fill an exudate gap — it can never change the tissue
+// type, never overturn a clinician answer, and never clear a concern.
+// ===========================================================================
+
+/** Ordered exudate bands, used to measure how far the VLM is from the answer. */
+const EXUDATE_ORDER: ExudateLevel[] = ['low', 'moderate', 'high'];
+
+/** Collapse the VLM's five-band visual estimate onto the CWCS three-band axis. */
+function visualExudateToLevel(v: VisualExudate): ExudateLevel | null {
+  if (v === 'none' || v === 'low') return 'low';
+  if (v === 'moderate') return 'moderate';
+  if (v === 'high' || v === 'very_high') return 'high';
+  return null; // 'uncertain' carries no information
+}
+
+export type ExudateReconciliation = {
+  exudate: ExudateLevel | null;
+  /** Cap applied to overall confidence when the VLM had to stand in for the answer. */
+  confidenceCap: Confidence | null;
+  downgrade: boolean;
+  notes: string[];
+};
+
+/**
+ * Exudate axis. The clinician/patient answer is authoritative; the VLM's visual
+ * estimate is only consulted when that answer is missing, and then confidence is
+ * capped at medium. A disagreement of more than one band downgrades confidence.
+ */
+export function reconcileExudate(
+  answered: ExudateLevel | undefined,
+  vlm: VlmFeatures | undefined,
+): ExudateReconciliation {
+  const notes: string[] = [];
+  const visual = vlm ? visualExudateToLevel(vlm.visualExudate) : null;
+
+  if (answered) {
+    if (visual) {
+      const distance = Math.abs(EXUDATE_ORDER.indexOf(answered) - EXUDATE_ORDER.indexOf(visual));
+      if (distance > 1) {
+        notes.push(
+          `Reported exudate (${answered}) and the image estimate (${visual}) disagree by more than one level — using the reported value, confidence reduced.`,
+        );
+        return { exudate: answered, confidenceCap: null, downgrade: true, notes };
+      }
+    }
+    return { exudate: answered, confidenceCap: null, downgrade: false, notes };
+  }
+
+  if (visual) {
+    notes.push(`Exudate level not reported — using the image estimate (${visual}). Confirm with the person being assessed.`);
+    return { exudate: visual, confidenceCap: 'medium', downgrade: false, notes };
+  }
+
+  return { exudate: null, confidenceCap: null, downgrade: false, notes };
+}
+
+/** Classic infection signs the VLM reports. Purulence alone is sufficient. */
+const CLASSIC_SIGNS: (keyof VlmFeatures['infectionSigns'])[] = [
+  'erythema',
+  'warmth',
+  'purulent',
+  'malodour',
+];
+
+export type InfectionReconciliation = {
+  infection: Infection | null;
+  notes: string[];
+};
+
+/**
+ * Infection axis — a conservative OR, not a vote.
+ *
+ * `yes` if the answer says yes, OR purulent discharge is seen, OR two or more
+ * classic signs are seen. `no` only when the answer says no AND the VLM saw no
+ * sign at all. Anything else is null → incomplete. The VLM can never establish
+ * `no` on its own: absence of visible signs is not absence of infection.
+ */
+export function reconcileInfection(
+  answered: Infection | undefined,
+  vlm: VlmFeatures | undefined,
+): InfectionReconciliation {
+  const notes: string[] = [];
+
+  const signs = vlm?.infectionSigns;
+  const present = signs ? CLASSIC_SIGNS.filter((k) => signs[k] === 'present') : [];
+  const anyPresent = signs
+    ? present.length > 0 || signs.friableGranulation === 'present'
+    : false;
+  const purulent = signs?.purulent === 'present';
+
+  if (answered === 'yes') {
+    return { infection: 'yes', notes };
+  }
+
+  if (purulent || present.length >= 2) {
+    if (answered === 'no') {
+      notes.push(
+        `Infection was reported as absent, but the image shows ${purulent ? 'purulent discharge' : present.length + ' infection signs'} — treated as possible infection.`,
+      );
+    } else {
+      notes.push(`Image shows ${purulent ? 'purulent discharge' : present.length + ' infection signs'} — treated as possible infection.`);
+    }
+    return { infection: 'yes', notes };
+  }
+
+  if (answered === 'no') {
+    if (anyPresent) {
+      notes.push('Infection reported as absent but the image shows a possible sign — confirm before proceeding.');
+      return { infection: null, notes };
+    }
+    return { infection: 'no', notes };
+  }
+
+  return { infection: null, notes };
+}
+
+// ===========================================================================
 // Mölnlycke module — FRAME + SAFETY (referral / escalation triggers)
 // Returns flags ordered by urgency (urgent > mdt > review).
 // ===========================================================================
@@ -265,19 +387,48 @@ function downgrade(c: Confidence): Confidence {
 export function evaluate(inputs: EngineInputs): EngineResult {
   const notes: string[] = [];
   const incompleteReasons: string[] = [];
+  const gateCodes: string[] = [];
 
+  // --- Tissue axis: HSI inside the wound mask is authoritative. ------------
   const { tissueType, notes: tissueNotes } = reconcileTissue(
     inputs.tissue,
     inputs.perfusion ?? 'unknown',
   );
   notes.push(...tissueNotes);
 
-  const exudate: ExudateLevel | null = inputs.exudate ?? null;
-  const infection: Infection | null = inputs.infection ?? null;
+  const noClassReachedThreshold = tissueNotes.some((n) => n.startsWith('No tissue class'));
+
+  // The VLM may disagree with the measured tissue composition. It does NOT get
+  // to change the class — it costs us confidence, and where the measurement was
+  // already weak, the two doubts together make the result unsafe to act on.
+  let tissueConflict = false;
+  if (inputs.vlm?.tissueCorroboration === 'disagrees') {
+    tissueConflict = true;
+    notes.push('The image review disagrees with the measured tissue composition — confidence reduced.');
+    if (noClassReachedThreshold) {
+      gateCodes.push('tissue_conflict');
+      incompleteReasons.push('The tissue in the wound bed could not be identified reliably.');
+    }
+  }
+
+  // --- Exudate + infection axes: reconcile answers with caged VLM features.
+  const exudateRecon = reconcileExudate(inputs.exudate, inputs.vlm);
+  notes.push(...exudateRecon.notes);
+  const exudate = exudateRecon.exudate;
+
+  const infectionRecon = reconcileInfection(inputs.infection, inputs.vlm);
+  notes.push(...infectionRecon.notes);
+  const infection = infectionRecon.infection;
 
   if (tissueType === null) incompleteReasons.push('Tissue type could not be determined.');
   if (exudate === null) incompleteReasons.push('Exudate level not provided.');
   if (infection === null) incompleteReasons.push('Infection status not provided.');
+
+  // Periwound erythema corroborates the spreading-infection trigger but never
+  // fires it alone — the >2 cm judgement belongs to the assessor.
+  if (inputs.periwound?.maceration) {
+    notes.push('The skin around the wound looks waterlogged — consider protecting the surrounding skin.');
+  }
 
   const referrals = molnlyckeFlags(inputs.molnlycke ?? {}, tissueType);
 
@@ -299,14 +450,56 @@ export function evaluate(inputs: EngineInputs): EngineResult {
     }
   }
 
-  // Confidence gate — conservative by default.
+  // --- Confidence gate — conservative by default. --------------------------
   let confidence: Confidence = inputs.cvConfidence ?? 'medium';
+  const hasScale = inputs.markerFound !== false || inputs.manualSizeProvided === true;
+
   if (inputs.markerFound === false) {
-    confidence = downgrade(confidence);
-    notes.push('No size-reference marker detected — measurements are relative only.');
+    if (inputs.manualSizeProvided) {
+      notes.push('No size-reference marker detected — using the size entered by hand.');
+    } else {
+      confidence = downgrade(confidence);
+      notes.push('No size-reference marker detected — measurements are relative only.');
+    }
   }
-  if (tissueNotes.some((n) => n.startsWith('No tissue class'))) {
+  if (noClassReachedThreshold) {
     confidence = downgrade(confidence);
+  }
+  if (tissueConflict) {
+    confidence = downgrade(confidence);
+  }
+  if (exudateRecon.downgrade) {
+    confidence = downgrade(confidence);
+  }
+  if (exudateRecon.confidenceCap === 'medium' && confidence === 'high') {
+    confidence = 'medium';
+  }
+
+  const imageFlags = inputs.vlm?.imageFlags ?? [];
+  if (imageFlags.includes('low_light')) {
+    confidence = downgrade(confidence);
+    notes.push('The photo is underexposed — a brighter, well-lit photo would give a more reliable result.');
+  }
+
+  // --- Safety gate: withhold the pathway rather than state it weakly. ------
+  // A pathway we cannot stand behind is worse than no pathway, because it will
+  // be acted on. These three conditions withhold it even when the axes resolved.
+  if (imageFlags.includes('blur')) {
+    gateCodes.push('blurred_image');
+    incompleteReasons.push('The photo is too blurred to assess — please retake it.');
+    confidence = 'low';
+  }
+  if (!hasScale) {
+    gateCodes.push('no_scale');
+    incompleteReasons.push('No size reference in the photo — add a marker or enter the wound size by hand.');
+  }
+
+  const pathwayWithheld = cwcsPathwayId !== null && gateCodes.length > 0;
+  if (pathwayWithheld) {
+    notes.push('A dressing suggestion was withheld because the assessment is not reliable enough to act on.');
+    cwcsPathwayId = null;
+    primary = [];
+    secondary = [];
   }
 
   const status: 'complete' | 'incomplete' =
@@ -319,6 +512,8 @@ export function evaluate(inputs: EngineInputs): EngineResult {
   return {
     status,
     incompleteReasons,
+    pathwayWithheld,
+    gateCodes,
     axes: { tissue: tissueType, exudate, infection },
     cwcsPathwayId,
     primary,

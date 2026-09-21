@@ -36,6 +36,24 @@ export type BodyZone =
 /** Wound-bed centroid in fractional image coordinates (0–1), used to seed SAM 2. */
 export type ImagePoint = { xPct: number; yPct: number };
 
+/**
+ * Skin in the 4 cm band around the wound edge (Mölnlycke step 5).
+ * `null` on a CvResult means "not measured" — usually because no size
+ * reference was found, so 4 cm could not be converted to pixels.
+ */
+export type Periwound = {
+  /** Share of the band (0–100) reading as erythema. */
+  rednessPct: number;
+  /** Share of the band (0–100) reading as waterlogged skin. */
+  macerationPct: number;
+  /** macerationPct over the reporting threshold. */
+  maceration: boolean;
+  /** Pixels actually sampled in the band. */
+  bandPx: number;
+  /** Band width in cm (always 4; recorded so the audit trail is self-describing). */
+  bandCm: number;
+};
+
 export type CvResult = {
   granulationPercent: number;
   sloughPercent: number;
@@ -53,6 +71,12 @@ export type CvResult = {
   coinDetected: boolean;
   /** HSV wound centroid (SAM 2 point-prompt seed); null when no wound contour found. */
   hsvCentroid: ImagePoint | null;
+  /** Which mask the tissue percentages were measured inside. */
+  maskSource?: 'hsv' | 'sam2';
+  /** Pixel count of that mask (the denominator behind the tissue percentages). */
+  maskAreaPx?: number;
+  /** Periwound band metrics; null when no scale was available to size the band. */
+  periwound?: Periwound | null;
 };
 
 export type QuestionnaireAnswers = {
@@ -78,7 +102,7 @@ export type AssessmentResult = {
   dressingCategory: string;
   rationale: string[];
   seekMedicalAttention: boolean;
-  // Phase 0 — CWCS/Mölnlycke deterministic engine output (optional; UI-safe).
+  // Phase 0 — deterministic guideline-engine output (optional; UI-safe).
   cwcsPathwayId?: number | null;
   tissueType?: string | null;
   primaryDressings?: string[];
@@ -86,6 +110,13 @@ export type AssessmentResult = {
   referrals?: { urgency: string; code: string; message: string }[];
   engineStatus?: 'complete' | 'incomplete';
   rulesVersion?: string;
+  // Phase 2 — the axes and gates the result screen renders in plain language.
+  exudateLevel?: string | null;
+  infection?: string | null;
+  confidence?: 'high' | 'medium' | 'low';
+  gateCodes?: string[];
+  pathwayWithheld?: boolean;
+  areaCm2?: number | null;
 };
 
 export type ScanSession = {

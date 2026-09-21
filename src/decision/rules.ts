@@ -43,7 +43,7 @@ function toAbpiValue(band: AbpiBand | null): number | undefined {
  * the Phase 2 caged-VLM + structured Q&A pipeline will replace with real signals
  * (perfusion/ABPI, explicit infection, epithelial tissue, etc.).
  */
-function toEngineInputs(session: ScanSession): EngineInputs {
+export function toEngineInputs(session: ScanSession): EngineInputs {
   const { cv, answers } = session;
 
   const tissue = {
@@ -85,6 +85,9 @@ function toEngineInputs(session: ScanSession): EngineInputs {
     infection,
     cvConfidence: cv?.confidence,
     markerFound: cv?.coinDetected,
+    periwound: cv?.periwound
+      ? { rednessPct: cv.periwound.rednessPct, maceration: cv.periwound.maceration }
+      : undefined,
     molnlycke: {
       diabetes: answers.diabetes === 'yes',
       abpi,
@@ -252,6 +255,12 @@ export function assess(session: ScanSession): AssessmentResult {
     referrals: engine.referrals,
     engineStatus: engine.status,
     rulesVersion: engine.rulesVersion,
+    exudateLevel: engine.axes.exudate,
+    infection: engine.axes.infection,
+    confidence: engine.confidence,
+    gateCodes: engine.gateCodes,
+    pathwayWithheld: engine.pathwayWithheld,
+    areaCm2: session.cv?.areaCm2 ?? null,
   };
 }
 
@@ -265,4 +274,15 @@ export const URGENCY_LABELS: Record<UrgencyLevel, string> = {
   immediate: 'Seek medical attention now',
   within_48h: 'Seek review within 48 hours',
   routine: 'Routine wound care review',
+};
+
+/**
+ * The same three levels phrased as an instruction rather than a label — this is
+ * the headline on the result screen, and a label ("Immediate") tells someone
+ * what category they are in, not what to do about it.
+ */
+export const URGENCY_ACTIONS: Record<UrgencyLevel, string> = {
+  immediate: 'Get medical help now',
+  within_48h: 'See a clinician within 48 hours',
+  routine: 'Keep caring for the wound at home',
 };
