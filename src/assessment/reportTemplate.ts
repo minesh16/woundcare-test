@@ -1,4 +1,4 @@
-import type { EngineResult } from '@/decision/engine.types';
+import type { EngineResult } from '../decision/engine.types';
 import {
   CONFIDENCE_PLAIN,
   EXUDATE_PLAIN,
@@ -6,11 +6,17 @@ import {
   INFECTION_PLAIN,
   TISSUE_CLINICAL,
   TISSUE_PLAIN,
-} from '@/copy/plainLanguage';
-import { referralCopy, URGENCY_PLAIN } from '@/copy/referrals';
+} from '../copy/plainLanguage';
+import { referralCopy, URGENCY_PLAIN } from '../copy/referrals';
 
 /**
  * Deterministic report writer.
+ *
+ * Imports are RELATIVE, not `@/`-aliased, and must stay that way: this module is
+ * reachable from `api/`, and Vercel's function bundler does not read tsconfig
+ * `paths`. Metro resolves the alias fine, so an aliased value import here builds
+ * clean, typechecks clean, works in the app — and throws at module load in the
+ * deployed function. `scripts/test-rules.mts` guards against the regression.
  *
  * This ships before the report LLM and stays available forever: it is the
  * fallback whenever the gateway is unconfigured, slow, or returns something

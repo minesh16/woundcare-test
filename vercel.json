@@ -8,6 +8,27 @@
     },
     "api/segment.ts": {
       "maxDuration": 60
+    },
+    "api/v1/assessments/run.ts": {
+      "maxDuration": 300
+    },
+    "api/v1/assessments/tissue.ts": {
+      "maxDuration": 60
+    },
+    "api/v1/assessments/vlm-features.ts": {
+      "maxDuration": 60
+    },
+    "api/v1/assessments/report.ts": {
+      "maxDuration": 60
+    },
+    "api/v1/assessments/baseline.ts": {
+      "maxDuration": 60
+    },
+    "api/v1/assessments/evaluate.ts": {
+      "maxDuration": 30
+    },
+    "api/v1/assessments/create.ts": {
+      "maxDuration": 30
     }
   }
 }

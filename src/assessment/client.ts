@@ -34,7 +34,9 @@ async function postJson<T>(path: string, body: unknown): Promise<T | null> {
 }
 
 export async function createAssessment(woundId?: string | null): Promise<string | null> {
-  const result = await postJson<{ assessment_id: string }>('/api/v1/assessments', { wound_id: woundId ?? null });
+  const result = await postJson<{ assessment_id: string }>('/api/v1/assessments/create', {
+    wound_id: woundId ?? null,
+  });
   return result?.assessment_id ?? null;
 }
 

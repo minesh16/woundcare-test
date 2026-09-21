@@ -139,11 +139,23 @@ client bundle). With Supabase unset everything still works and the audit record 
 - The report system prompt was duplicated between the endpoint and the smoke test, so the test was
   exercising a paraphrase. Extracted to `src/assessment/reportPrompt.ts`; both import it.
 
+### Deployment gotchas (both cost a bad prod deploy — don't rediscover them)
+1. **Vercel functions do not resolve tsconfig `paths`.** Any `src/` module reachable from `api/`
+   must use relative imports. An aliased *value* import typechecks clean, bundles clean under Metro,
+   works in the app — and throws at module load in the deployed function (`report.ts` and `run.ts`
+   returned 500 while their siblings were fine). `import type` is safe; it is erased before
+   bundling. Guarded by `npm run test:imports`.
+2. **A nested `api/**/index.ts` is not routed to its directory path.** `/api/v1/assessments`
+   404'd while every sibling resolved, so the create route is an explicit `create.ts`.
+3. `maxDuration` for plain Vercel Node functions comes from `vercel.json`, not from an
+   `export const config` in the handler (that is Next.js route-segment config).
+
 ### Verify
-`npm test` runs all three offline suites:
+`npm test` runs all four offline suites:
 - `npm run test:rules` — **97/97** (was 66; the 66 are asserted unchanged when no VLM is supplied)
 - `npm run test:cage` — 15/15 schema + report-cage assertions, no network
 - `npm run test:copy` — terminology guard over `src/app`, `src/components`, `src/copy`
+- `npm run test:imports` — catches the alias-in-a-function bug above
 
 `npm run typecheck` — only the pre-existing `app-tabs.web.tsx` `/explore` error.
 

@@ -4,7 +4,11 @@ import { newAssessmentId, type AssessmentState } from '../../../src/assessment/s
 import { saveAssessment } from './_store';
 
 /**
- * POST /api/v1/assessments → { assessment_id }
+ * POST /api/v1/assessments/create → { assessment_id }
+ *
+ * Named `create.ts`, not `index.ts`: Vercel's filesystem routing did not map a
+ * nested `index.ts` to its directory path (`/api/v1/assessments` returned 404
+ * in production while its siblings resolved), so the route is explicit.
  *
  * Opens a record. `wound_id` is an optional client-generated grouping key for
  * the longitudinal timeline — it identifies a wound across visits, never a

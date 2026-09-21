@@ -60,10 +60,11 @@
     "test:rules": "node --experimental-strip-types scripts/test-rules.mts",
     "test:cage": "node --experimental-strip-types scripts/test-vlm-schema.mts",
     "test:copy": "node --experimental-strip-types scripts/test-copy.mts",
-    "test": "npm run test:rules && npm run test:cage && npm run test:copy",
+    "test": "npm run test:rules && npm run test:cage && npm run test:copy && npm run test:imports",
     "check:gateway": "node --experimental-strip-types scripts/check-gateway.mts",
     "db:migrate": "bash scripts/apply-migration.sh",
-    "smoke:live": "node --experimental-strip-types scripts/smoke-live.mts"
+    "smoke:live": "node --experimental-strip-types scripts/smoke-live.mts",
+    "test:imports": "node --experimental-strip-types scripts/test-imports.mts"
   },
   "private": true
 }

@@ -15,7 +15,9 @@ import { runAssessment } from './_controller';
  * as it happens, rather than being hidden behind a single final answer.
  */
 
-export const config = { maxDuration: 300 };
+// maxDuration is set in vercel.json — for plain Vercel Node functions (as
+// opposed to Next.js route handlers) that file is the authority, and having two
+// sources of truth for a timeout is how one of them ends up silently ignored.
 
 function send(res: VercelResponse, event: string, data: unknown): void {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
