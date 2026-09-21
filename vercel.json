@@ -29,6 +29,9 @@
     },
     "api/v1/assessments/create.ts": {
       "maxDuration": 30
+    },
+    "api/v1/assessments/health.ts": {
+      "maxDuration": 30
     }
   }
 }

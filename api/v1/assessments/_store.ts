@@ -28,8 +28,26 @@ export function isStoreConfigured(): boolean {
   return Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
 }
 
+let warnedUnconfigured = false;
+
 function getClient(): SupabaseClient | null {
-  if (!isStoreConfigured()) return null;
+  if (!isStoreConfigured()) {
+    // Silent degradation is right for the request, but silence in the logs is
+    // not: a missing env var and a failing write look identical from outside.
+    // Warn once per container so the reason is discoverable without noise.
+    if (!warnedUnconfigured) {
+      warnedUnconfigured = true;
+      const missing = [
+        process.env.SUPABASE_URL ? null : 'SUPABASE_URL',
+        process.env.SUPABASE_SERVICE_ROLE_KEY ? null : 'SUPABASE_SERVICE_ROLE_KEY',
+      ].filter(Boolean);
+      console.warn(
+        `Supabase not configured (missing: ${missing.join(', ')}) — assessments will not be persisted ` +
+          'and audit records will go to stdout. See supabase/README.md.',
+      );
+    }
+    return null;
+  }
   if (!client) {
     client = createClient(
       process.env.SUPABASE_URL as string,
