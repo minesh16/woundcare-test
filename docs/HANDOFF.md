@@ -139,6 +139,26 @@ client bundle). With Supabase unset everything still works and the audit record 
 - The report system prompt was duplicated between the endpoint and the smoke test, so the test was
   exercising a paraphrase. Extracted to `src/assessment/reportPrompt.ts`; both import it.
 
+### Production status (mendwise.vercel.app, 21 Sep 2026)
+`GET /api/v1/assessments/health` is the authoritative answer to "what does this deployment have".
+
+| Capability | State |
+|---|---|
+| Deterministic engine | ✅ always — never depends on anything below |
+| AI Gateway (VLM + report) | ✅ `openai/gpt-5` / `gemini-2.5-flash` on the free tier |
+| SAM 2 segmentation | ✅ `REPLICATE_API_TOKEN` present |
+| Supabase persistence + audit | ❌ **`SUPABASE_URL` missing from the Vercel project** |
+
+Verified live against prod: all 7 v1 endpoints reach their handlers; `evaluate` returns pathway 16
+with the correct axes; the safety gate withholds the pathway and returns both plain-English reasons
+on a blurred/no-scale input; `report` returns `source: llm` having passed the cage check.
+
+⚠️ **Until `SUPABASE_URL` is added and the project redeployed, nothing is persisted and no
+`audit_log` rows are written** (they go to stdout instead). Assessments still compute and return
+correctly — the engine has no database dependency — but the audit trail, which is the whole point of
+the schema, is not being captured. **Vercel binds env vars at deploy time, so adding the variable is
+not enough on its own; it needs a redeploy.**
+
 ### Deployment gotchas (both cost a bad prod deploy — don't rediscover them)
 1. **Vercel functions do not resolve tsconfig `paths`.** Any `src/` module reachable from `api/`
    must use relative imports. An aliased *value* import typechecks clean, bundles clean under Metro,
