@@ -1,0 +1,50 @@
+---
+title: Modules
+description: Map of MendWise source modules and where each is documented.
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+Each page below is a file-level reference: what the module does, key exports, and how it is wired. Paths are real paths in [minesh16/woundcare-test](https://github.com/minesh16/woundcare-test).
+
+<CardGrid>
+	<Card title="Computer vision" icon="magnifier">
+		[`src/cv/`](/docs/modules/cv/) — OpenCV pipeline, tissue %, measurement, SAM 2 client.
+	</Card>
+	<Card title="Decision engine" icon="setting">
+		[`src/decision/`](/docs/modules/decision/) — `engine.ts` (one runtime file), VLM schema, report cage.
+	</Card>
+	<Card title="Assessment V2" icon="rocket">
+		[`src/assessment/`](/docs/modules/assessment/) — state, client, report template / prompt.
+	</Card>
+	<Card title="Plain language" icon="translate">
+		[`src/copy/`](/docs/modules/copy/) — patient-facing maps; engine strings stay untouched.
+	</Card>
+	<Card title="Legacy API" icon="cloud-download">
+		[`api/*.ts`](/docs/modules/api/) — analyze, segment, SAM 2 adapter, mask select, tissue ops.
+	</Card>
+	<Card title="V2 API" icon="list-format">
+		[`api/v1/assessments/`](/docs/modules/api-v1/) — create, tissue, VLM, evaluate, report, SSE run, health.
+	</Card>
+	<Card title="Screens" icon="laptop">
+		[`src/app/`](/docs/modules/screens/) — capture → analyze → location → questions → result.
+	</Card>
+	<Card title="Supabase" icon="database">
+		[`supabase/`](/docs/modules/supabase/) — schema, RLS, append-only audit. Prod URL still missing.
+	</Card>
+</CardGrid>
+
+| Area | Path | Page |
+|---|---|---|
+| Computer vision | `src/cv/` | [CV](/docs/modules/cv/) |
+| Decision engine | `src/decision/` | [Decision](/docs/modules/decision/) |
+| V2 assessment client / state / reports | `src/assessment/` | [Assessment](/docs/modules/assessment/) |
+| Plain-language presentation | `src/copy/` | [Copy](/docs/modules/copy/) |
+| Legacy Vercel functions | `api/*.ts` | [Legacy API](/docs/modules/api/) |
+| V2 assessment API | `api/v1/assessments/` | [V2 API](/docs/modules/api-v1/) |
+| Expo Router screens | `src/app/` | [Screens](/docs/modules/screens/) |
+| Persistence | `supabase/` | [Supabase](/docs/modules/supabase/) |
+
+Related but not given their own page: [`src/store/sessionStore.ts`](https://github.com/minesh16/woundcare-test/blob/main/src/store/sessionStore.ts) (Zustand + AsyncStorage), [`src/config/featureFlags.ts`](https://github.com/minesh16/woundcare-test/blob/main/src/config/featureFlags.ts) (`ASSESSMENT_V2`), [`src/components/ResultPanel.tsx`](https://github.com/minesh16/woundcare-test/blob/main/src/components/ResultPanel.tsx) (patient-facing result + Clinician view).
+
+When you add a new top-level module, extend this table **and** [`.cursor/hooks/doc-map.json`](https://github.com/minesh16/woundcare-test/blob/main/.cursor/hooks/doc-map.json). See [Contributing](/docs/contributing/).

@@ -1,0 +1,79 @@
+---
+title: MendWise
+description: What MendWise is, who it is for, and the deterministic-engine / caged-AI thesis.
+---
+
+import { Card, CardGrid, LinkCard, LinkButton, Aside, Badge } from '@astrojs/starlight/components';
+
+**MendWise** is a research prototype for guideline-grounded wound assessment, built for the La Trobe AI Innovation Ventures Program (SDG 3 / health). It is an Expo app (iOS, Android, and web) that photographs a wound, measures what it can see, asks a short questionnaire, and returns a dressing category plus referral flags.
+
+<Badge text="Research prototype" variant="caution" />
+<Badge text="Not a medical device" variant="danger" />
+<Badge text="Phases 0–2 shipped" variant="success" />
+
+It is **not a medical device** and is not for clinical use.
+
+The live web build is [mendwise.vercel.app](https://mendwise.vercel.app). These docs live at [mendwise.vercel.app/docs](https://mendwise.vercel.app/docs) (passphrase-gated). Source: [minesh16/woundcare-test](https://github.com/minesh16/woundcare-test).
+
+<div class="sl-flex" style="gap: 0.75rem; flex-wrap: wrap; margin: 1rem 0 1.5rem;">
+	<LinkButton href="/docs/getting-started/" icon="rocket">Get started</LinkButton>
+	<LinkButton href="/docs/architecture/" variant="secondary" icon="puzzle">The cage</LinkButton>
+	<LinkButton href="/docs/operations/status/" variant="minimal" icon="information">Prod status</LinkButton>
+</div>
+
+## The problem
+
+A frontier vision model can look at a wound photo and produce fluent advice. That output cannot be checked: there is no measurement, no pathway id, no rules version, and no audit trail. A clinician (or a university assessor) cannot tell whether the suggestion came from a guideline or from a guess.
+
+MendWise's answer is the opposite shape: **objective measurement + a deterministic, auditable decision**, with AI only supplying inputs and narrating outputs.
+
+## The thesis — deterministic engine, caged AI
+
+Two published guides become code:
+
+- **CWCS** (Australian Government, Dept of Health & Aged Care) — a 26-row lookup: tissue × exudate × infection → primary and secondary dressing categories. Encoded in [`src/decision/engine.ts`](https://github.com/minesh16/woundcare-test/blob/main/src/decision/engine.ts) as `CWCS_PATHWAYS`, currently version `cwcs-2024.1+recon.1`.
+- **Mölnlycke 10-step local wound assessment** — referral / escalation triggers (probe-to-bone, ABPI, DFU, LOPS, necrotic tissue, …). Same file, `molnlyckeFlags()`. The manufacturer's name stays in the engine, types, and these docs as **provenance**; it is stripped from patient-facing UI.
+
+AI never emits a pathway. SAM 2 finds a boundary. OpenCV HSI counts tissue inside that boundary. A frontier VLM returns only Zod-validated enums. A frontier LLM writes up facts the engine has already decided. The five invariants that enforce this are [the cage](/docs/architecture/#the-cage).
+
+## Who it is for
+
+| Audience | What they get |
+|---|---|
+| The person with the wound | Plain-language "what to do / what we saw / dressing type", with a Clinician view one tap away |
+| A clinician reviewing the result | Exact clinical terms, pathway id, referral codes, gate codes, `rulesVersion` |
+| The venture / Assessment 3 panel | A demonstrable moat: measurement + a unit-tested lookup table, not a wrapper around a chat API |
+| Minesh, Raymond, Trang | This site — architecture, modules, operational status, and a hook that nudges the docs when source files change |
+
+## What is actually built
+
+Phases 0, 1, and 2 are **done**, not planned. The SSE orchestrator at `POST /api/v1/assessments/run` already exists (it was scoped as Phase 3 in an earlier plan and shipped with Phase 2). See [Roadmap](/docs/roadmap/) for the split between shipped and next.
+
+Production is not fully wired: the engine, AI Gateway, and SAM 2 run on [mendwise.vercel.app](https://mendwise.vercel.app); **Supabase persistence and audit logging do not**, because `SUPABASE_URL` is missing from the Vercel project. Details: [Production status](/docs/operations/status/).
+
+<CardGrid>
+	<Card title="Architecture" icon="puzzle">
+		The cage, the live pipeline, and how Expo talks to Vercel, Replicate, the AI Gateway, and Supabase.
+	</Card>
+	<Card title="Decision engine" icon="setting">
+		CWCS lookup, tissue precedence, per-axis reconciliation, and the safety gate that withholds a pathway.
+	</Card>
+	<Card title="Modules" icon="document">
+		File-by-file reference for `src/cv`, `src/decision`, `src/assessment`, `src/copy`, `api/`, and Supabase.
+	</Card>
+	<Card title="Get it running" icon="rocket">
+		Dev setup, platform commands, offline tests (`npm test`) vs live-network checks.
+	</Card>
+	<Card title="Production status" icon="information">
+		What [mendwise.vercel.app](https://mendwise.vercel.app) actually has today. Re-check `GET /api/v1/assessments/health`.
+	</Card>
+	<Card title="Roadmap" icon="list-format">
+		Golden eval, prod Supabase URL, SAM 2 latency, timeline UI, ArUco, ethics — not shipped. Do not invent capability.
+	</Card>
+</CardGrid>
+
+<Aside type="caution" title="Conservative by default">
+No marker, low confidence, or conflicting signals → incomplete → retake or escalate. The engine never states a confident dressing call it cannot support.
+</Aside>
+
+<LinkCard title="The cage and the pipeline" href="/docs/architecture/" description="Five invariants, system diagram, and the capture → result sequence as the app actually runs." />

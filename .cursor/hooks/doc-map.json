@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "comment": "Source glob → docs-site pages. Extend this when you add a top-level module. See docs-site/src/content/docs/contributing.md.",
+  "mappings": [
+    {
+      "glob": "src/decision/**",
+      "pages": [
+        "docs-site/src/content/docs/architecture/decision-engine.md",
+        "docs-site/src/content/docs/modules/decision.md"
+      ]
+    },
+    {
+      "glob": "src/cv/**",
+      "pages": [
+        "docs-site/src/content/docs/architecture/pipeline.md",
+        "docs-site/src/content/docs/modules/cv.md"
+      ]
+    },
+    {
+      "glob": "src/assessment/**",
+      "pages": [
+        "docs-site/src/content/docs/architecture/pipeline.md",
+        "docs-site/src/content/docs/modules/assessment.md"
+      ]
+    },
+    {
+      "glob": "src/copy/**",
+      "pages": [
+        "docs-site/src/content/docs/modules/copy.md"
+      ]
+    },
+    {
+      "glob": "src/app/**",
+      "pages": [
+        "docs-site/src/content/docs/modules/screens.md",
+        "docs-site/src/content/docs/architecture/index.md"
+      ]
+    },
+    {
+      "glob": "api/v1/assessments/**",
+      "pages": [
+        "docs-site/src/content/docs/architecture/pipeline.md",
+        "docs-site/src/content/docs/modules/api-v1.md"
+      ]
+    },
+    {
+      "glob": "api/**",
+      "pages": [
+        "docs-site/src/content/docs/architecture/pipeline.md",
+        "docs-site/src/content/docs/modules/api.md"
+      ]
+    },
+    {
+      "glob": "supabase/migrations/**",
+      "pages": [
+        "docs-site/src/content/docs/operations/status.md",
+        "docs-site/src/content/docs/modules/supabase.md"
+      ]
+    },
+    {
+      "glob": "supabase/README.md",
+      "pages": [
+        "docs-site/src/content/docs/operations/status.md",
+        "docs-site/src/content/docs/modules/supabase.md"
+      ]
+    },
+    {
+      "glob": "docs/HANDOFF.md",
+      "pages": [
+        "docs-site/src/content/docs/roadmap.md",
+        "docs-site/src/content/docs/operations/status.md"
+      ]
+    },
+    {
+      "glob": "package.json",
+      "pages": [
+        "docs-site/src/content/docs/stack/tech-stack.md",
+        "docs-site/src/content/docs/stack/platforms.md"
+      ]
+    },
+    {
+      "glob": "app.json",
+      "pages": [
+        "docs-site/src/content/docs/stack/platforms.md",
+        "docs-site/src/content/docs/stack/tech-stack.md"
+      ]
+    }
+  ]
+}

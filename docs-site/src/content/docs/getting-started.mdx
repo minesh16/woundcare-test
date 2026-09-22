@@ -1,0 +1,138 @@
+---
+title: Getting started
+description: Dev setup, how to run on each platform, offline tests vs live-network checks.
+---
+
+import { Aside, Badge, Card, CardGrid, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Repo: [`minesh16/woundcare-test`](https://github.com/minesh16/woundcare-test). Node **20+** (functions also run on Vercel's Node). Expo SDK **57** — read [https://docs.expo.dev/versions/v57.0.0/](https://docs.expo.dev/versions/v57.0.0/) before writing Expo code.
+
+<Badge text="Prototype" variant="caution" />
+<Badge text="Expo SDK 57" variant="note" />
+<Badge text="npm test is offline" variant="success" />
+
+<Aside type="danger" title="Not a medical device">
+This is a research prototype. Do not use it for clinical decisions.
+</Aside>
+
+## Install
+
+<Steps>
+
+1. Clone and install:
+
+   ```bash
+   git clone https://github.com/minesh16/woundcare-test.git
+   cd woundcare-test
+   npm install
+   ```
+
+2. Copy env locally (`supabase/README.md` is the reference). **Never** prefix `SUPABASE_*` or the service-role key with `EXPO_PUBLIC_`.
+
+3. Typical `.env.local` names (values omitted on purpose):
+
+   - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+   - `REPLICATE_API_TOKEN`
+   - `AI_GATEWAY_API_KEY` (or `vercel env pull` for OIDC)
+   - `EXPO_PUBLIC_ASSESSMENT_V2=true` to exercise V2
+   - `EXPO_PUBLIC_API_BASE` on native (the Vercel origin); web can use same-origin
+   - `DOCS_PASSPHRASE` — only needed to preview the `/docs` gate via `npx vercel dev`
+
+</Steps>
+
+## Run the app
+
+<Tabs>
+<TabItem label="Web UI only" icon="laptop">
+
+No `/api` routes. Analysis falls back to the deterministic demo pipeline because Metro does not serve Vercel functions.
+
+```bash
+npm run web
+```
+
+</TabItem>
+<TabItem label="Web + functions" icon="cloud-download">
+
+Camera needs HTTPS / localhost secure context.
+
+```bash
+npx vercel dev
+```
+
+Docs then sit at `http://localhost:3000/docs` **after a production-style build** that copies Starlight into `dist/docs`. For authoring docs, use the Astro dev server below instead.
+
+</TabItem>
+<TabItem label="iOS / Android" icon="mobile-android">
+
+Custom **dev client** — Expo Go cannot load `react-native-fast-opencv`.
+
+```bash
+npx expo run:ios
+# or
+npx expo run:android
+npm start
+```
+
+EAS: `npx eas build --profile development --platform ios` (see `eas.json`).
+
+</TabItem>
+</Tabs>
+
+## Tests
+
+### Offline (always run these)
+
+```bash
+npm test
+```
+
+That is four suites, no network:
+
+| Script | What it guards |
+|---|---|
+| `npm run test:rules` | Engine: **97/97** assertions as of 21 Sep 2026 (66 Phase-0 outcomes stay identical when no VLM is passed) |
+| `npm run test:cage` | **15/15** VLM schema + report-cage assertions |
+| `npm run test:copy` | **4/4** banned-terminology checks in `src/app`, `src/components`, `src/copy` |
+| `npm run test:imports` | **2/2** — no `@/` value imports in `src/` files reachable from `api/` |
+
+```bash
+npm run typecheck
+```
+
+Expect one pre-existing error in `src/components/app-tabs.web.tsx` (`/explore`). Do not add others.
+
+### Live network (need `.env.local`)
+
+These are **not** part of `npm test`:
+
+```bash
+npm run check:gateway   # real model access per role — listing ≠ entitlement
+npm run smoke:live      # caged VLM, engine, report cage, Supabase round-trip
+npm run db:migrate      # idempotent apply of 0001_assessments.sql
+```
+
+`smoke:live` deletes its own rows unless `SMOKE_KEEP_ROWS=true`. It is the proof that an audit row landed in Postgres, not merely that `writeAudit` did not throw.
+
+## This documentation site
+
+<CardGrid>
+	<Card title="Author locally" icon="pencil">
+		`cd docs-site && npm install && npm run dev` — now at `http://localhost:4321/docs/` because `base` is `/docs`.
+	</Card>
+	<Card title="Ship with the app" icon="rocket">
+		Same Vercel project as the Expo web app. Production build copies Starlight into `dist/docs`. Live URL: `/docs`.
+	</Card>
+	<Card title="Passphrase" icon="padlock">
+		`DOCS_PASSPHRASE` on the Vercel project (server-side). The wound app stays public; only `/docs` is gated.
+	</Card>
+</CardGrid>
+
+```bash
+cd docs-site
+npm install
+npm run dev          # http://localhost:4321/docs/
+npm run build        # required before you declare the docs green
+```
+
+Deploy is the **same** `mendwise.vercel.app` project (`node scripts/build-vercel.mjs`). Details: [`docs-site/README.md`](https://github.com/minesh16/woundcare-test/blob/main/docs-site/README.md). Do not create a second Vercel project, and do not point Root Directory at `docs-site/`.

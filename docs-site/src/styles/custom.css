@@ -1,0 +1,241 @@
+/* MendWise docs — navy / teal, diagram chrome, version log */
+
+:root {
+	--mw-navy: #0b2545;
+	--mw-teal: #0e7c7b;
+	--mw-teal-bright: #14b8a6;
+}
+
+:root[data-theme='light'] {
+	--sl-color-accent-low: #e6f5f3;
+	--sl-color-accent: var(--mw-teal);
+	--sl-color-accent-high: var(--mw-navy);
+}
+
+:root[data-theme='dark'] {
+	--sl-color-accent-low: #0b2f2e;
+	--sl-color-accent: var(--mw-teal-bright);
+	--sl-color-accent-high: #99f6e4;
+}
+
+.site-title img {
+	border-radius: 0.4rem;
+}
+
+/* Sidebar: icon before each known href (Starlight 0.42 has no sidebar `icon` field). */
+.sidebar-content a {
+	align-items: center;
+}
+
+.sidebar-content a::before {
+	content: '';
+	flex: 0 0 1rem;
+	width: 1rem;
+	height: 1rem;
+	margin-inline-end: 0.45rem;
+	background-color: currentColor;
+	opacity: 0.72;
+	mask: var(--mw-icon, none) center / contain no-repeat;
+	-webkit-mask: var(--mw-icon, none) center / contain no-repeat;
+}
+
+.sidebar-content a:not([style*='--mw-icon'])::before,
+.sidebar-content a[href]::before {
+	/* default document glyph */
+	--mw-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'><path d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zm0 2 4 4h-4z'/></svg>");
+}
+
+.sidebar-content a[href$='/docs/']::before,
+.sidebar-content a[href$='/docs']::before {
+	--mw-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'><path d='M12 2 3 7v10l9 5 9-5V7zm0 2.2 6.5 3.6L12 11.4 5.5 7.8z'/></svg>");
+}
+
+.sidebar-content a[href*='/getting-started']::before {
+	--mw-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'><path d='M13 2 4 14h7l-1 8 10-14h-7z'/></svg>");
+}
+
+.sidebar-content a[href*='/architecture']::before {
+	--mw-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'><path d='M12 2 2 7l10 5 10-5-10-5zm-8 8.2V14l8 4 8-4v-3.8L12 14z'/></svg>");
+}
+
+.sidebar-content a[href*='/architecture/pipeline']::before {
+	--mw-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'><path d='M4 6h4v4H4zm6 0h10v2H10zm0 4h10v2H10zM4 14h4v4H4zm6 0h10v2H10zm0 4h10v2H10z'/></svg>");
+}
+
+.sidebar-content a[href*='/architecture/decision-engine']::before {
+	--mw-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'><path d='M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.1 7.1 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 13.9 2h-3.8a.5.5 0 0 0-.49.42l-.36 2.54c-.59.22-1.14.53-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.48a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94L2.83 14.16a.5.5 0 0 0-.12.64l1.92 3.32c.13.23.4.32.64.22l2.39-.96c.49.41 1.04.72 1.63.94l.36 2.54c.05.24.25.42.49.42h3.8c.24 0 .44-.18.49-.42l.36-2.54c.59-.22 1.14-.53 1.63-.94l2.39.96c.24.1.51.01.64-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z'/></svg>");
+}
+
+.sidebar-content a[href*='/modules']::before {
+	--mw-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'><path d='M4 4h7v7H4zm9 0h7v7h-7zM4 13h7v7H4zm9 0h7v7h-7z'/></svg>");
+}
+
+.sidebar-content a[href*='/operations/status']::before {
+	--mw-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'><path d='M4 13h4v7H4zm6-6h4v13h-4zm6 3h4v10h-4z'/></svg>");
+}
+
+.sidebar-content a[href*='/stack/tech-stack']::before {
+	--mw-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'><path d='M12 2 3 7l9 5 9-5-9-5zm-8 8v2l8 4 8-4v-2l-8 4-8-4zm0 5v2l8 4 8-4v-2l-8 4-8-4z'/></svg>");
+}
+
+.sidebar-content a[href*='/stack/platforms']::before {
+	--mw-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'><path d='M4 5h16v10H4zm2 12h5v2H6zm7 0h5v2h-5z'/></svg>");
+}
+
+.sidebar-content a[href*='/roadmap']::before {
+	--mw-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'><path d='M6 4h2v16H6zm10 0 6 4-6 4V4zM10 8h6v2h-6zm0 4h4v2h-4z'/></svg>");
+}
+
+.sidebar-content a[href*='/contributing']::before {
+	--mw-icon: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'><path d='M3 17.25V21h3.75L17.81 9.94l-3.75-3.75zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75z'/></svg>");
+}
+
+/* Mermaid viewer */
+.mw-diagram {
+	margin: 1.25rem 0;
+	border: 1px solid var(--sl-color-gray-5);
+	border-radius: 0.75rem;
+	background: var(--sl-color-gray-6);
+	overflow: hidden;
+}
+
+.mw-diagram__toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.35rem;
+	padding: 0.4rem 0.55rem;
+	border-bottom: 1px solid var(--sl-color-gray-5);
+	background: var(--sl-color-gray-7, var(--sl-color-black));
+}
+
+.mw-diagram__toolbar button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.3rem;
+	min-width: 2rem;
+	height: 2rem;
+	padding: 0 0.55rem;
+	border: 1px solid var(--sl-color-gray-4);
+	border-radius: 0.4rem;
+	background: var(--sl-color-bg);
+	color: var(--sl-color-text);
+	font: inherit;
+	font-size: 0.8rem;
+	cursor: pointer;
+}
+
+.mw-diagram__toolbar button:hover,
+.mw-diagram__toolbar button:focus-visible {
+	border-color: var(--sl-color-accent);
+	color: var(--sl-color-accent-high);
+}
+
+.mw-diagram__toolbar .mw-spacer {
+	flex: 1;
+}
+
+.mw-diagram__hint {
+	font-size: 0.75rem;
+	color: var(--sl-color-gray-3);
+	margin-inline-end: 0.25rem;
+}
+
+.mw-diagram__stage {
+	position: relative;
+	height: min(28rem, 70vh);
+	overflow: hidden;
+	touch-action: none;
+	cursor: grab;
+	background:
+		radial-gradient(transparent 1px, var(--sl-color-gray-6) 1px) 0 0 / 16px 16px,
+		var(--sl-color-bg);
+}
+
+.mw-diagram__stage.is-panning {
+	cursor: grabbing;
+}
+
+.mw-diagram__canvas {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	transform-origin: 0 0;
+}
+
+.mw-diagram__canvas svg {
+	max-width: none;
+	height: auto;
+}
+
+.mw-diagram-dialog {
+	width: min(96vw, 1400px);
+	height: min(94vh, 900px);
+	max-width: none;
+	padding: 0;
+	border: 1px solid var(--sl-color-gray-4);
+	border-radius: 0.85rem;
+	background: var(--sl-color-bg);
+	color: var(--sl-color-text);
+}
+
+.mw-diagram-dialog::backdrop {
+	background: rgb(11 37 69 / 0.72);
+}
+
+.mw-diagram-dialog .mw-diagram {
+	margin: 0;
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+	border: 0;
+	border-radius: 0;
+}
+
+.mw-diagram-dialog .mw-diagram__stage {
+	flex: 1;
+	height: auto;
+}
+
+.mw-icon-btn svg {
+	width: 1rem;
+	height: 1rem;
+}
+
+/* Version log */
+.mw-version-log {
+	margin-top: 2.5rem;
+	padding-top: 1.5rem;
+	border-top: 1px solid var(--sl-color-gray-5);
+}
+
+.mw-version-log h2 {
+	display: flex;
+	align-items: baseline;
+	gap: 0.75rem;
+	flex-wrap: wrap;
+	font-size: 1.05rem;
+}
+
+.mw-version-log__current {
+	font-size: 0.8rem;
+	font-weight: 500;
+}
+
+.mw-version-log__table-wrap {
+	overflow-x: auto;
+}
+
+.mw-version-log__note {
+	font-size: 0.85rem;
+	color: var(--sl-color-gray-3);
+}
+
+.mw-inline-icon {
+	display: inline-flex;
+	vertical-align: -0.15em;
+	margin-inline-end: 0.3rem;
+}

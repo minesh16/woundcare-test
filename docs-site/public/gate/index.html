@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>MendWise docs — passphrase</title>
+		<style>
+			:root {
+				color-scheme: light dark;
+				--navy: #0b2545;
+				--teal: #14b8a6;
+				--bg: #f6f8fb;
+				--card: #fff;
+				--text: #0f172a;
+				--muted: #475569;
+				--border: #d6dee8;
+			}
+			@media (prefers-color-scheme: dark) {
+				:root {
+					--bg: #071525;
+					--card: #0b2545;
+					--text: #e2e8f0;
+					--muted: #94a3b8;
+					--border: #1e3a5f;
+				}
+			}
+			* {
+				box-sizing: border-box;
+			}
+			body {
+				margin: 0;
+				min-height: 100vh;
+				display: grid;
+				place-items: center;
+				font-family:
+					ui-sans-serif,
+					system-ui,
+					-apple-system,
+					Segoe UI,
+					sans-serif;
+				background: radial-gradient(1200px 600px at 10% -10%, #14b8a633, transparent), var(--bg);
+				color: var(--text);
+			}
+			main {
+				width: min(26rem, calc(100vw - 2rem));
+				padding: 1.75rem;
+				border: 1px solid var(--border);
+				border-radius: 1rem;
+				background: var(--card);
+				box-shadow: 0 16px 40px rgb(11 37 69 / 0.12);
+			}
+			.mark {
+				width: 2.5rem;
+				height: 2.5rem;
+				border-radius: 0.65rem;
+				background: var(--navy);
+				display: grid;
+				place-items: center;
+				margin-bottom: 1rem;
+			}
+			.mark svg {
+				width: 1.6rem;
+				height: 1.6rem;
+			}
+			h1 {
+				margin: 0 0 0.4rem;
+				font-size: 1.25rem;
+			}
+			p {
+				margin: 0 0 1rem;
+				color: var(--muted);
+				line-height: 1.45;
+				font-size: 0.95rem;
+			}
+			label {
+				display: block;
+				font-size: 0.85rem;
+				font-weight: 600;
+				margin-bottom: 0.35rem;
+			}
+			input {
+				width: 100%;
+				padding: 0.7rem 0.8rem;
+				border: 1px solid var(--border);
+				border-radius: 0.55rem;
+				font: inherit;
+				background: transparent;
+				color: inherit;
+			}
+			button {
+				margin-top: 0.9rem;
+				width: 100%;
+				padding: 0.7rem;
+				border: 0;
+				border-radius: 0.55rem;
+				background: var(--navy);
+				color: #fff;
+				font: inherit;
+				font-weight: 600;
+				cursor: pointer;
+			}
+			button:hover {
+				filter: brightness(1.08);
+			}
+			.error {
+				display: none;
+				margin-top: 0.75rem;
+				color: #b91c1c;
+				font-size: 0.9rem;
+			}
+			.hint {
+				margin-top: 1rem;
+				font-size: 0.8rem;
+			}
+		</style>
+	</head>
+	<body>
+		<main>
+			<div class="mark" aria-hidden="true">
+				<svg viewBox="0 0 64 64" fill="none">
+					<circle cx="32" cy="32" r="18" stroke="#5EEAD4" stroke-width="3" />
+					<circle cx="32" cy="32" r="8" stroke="#99F6E4" stroke-width="2.5" />
+					<path
+						d="M32 14v6M32 44v6M14 32h6M44 32h6"
+						stroke="#5EEAD4"
+						stroke-width="2.5"
+						stroke-linecap="round"
+					/>
+				</svg>
+			</div>
+			<h1>MendWise docs</h1>
+			<p>
+				Internal architecture notes for the research prototype. Enter the shared passphrase to
+				continue. The wound-assessment app itself stays public.
+			</p>
+			<form id="gate" autocomplete="off">
+				<label for="passphrase">Passphrase</label>
+				<input
+					id="passphrase"
+					name="passphrase"
+					type="password"
+					required
+					autofocus
+					spellcheck="false"
+				/>
+				<button type="submit">Unlock docs</button>
+				<p class="error" id="error" role="alert"></p>
+			</form>
+			<p class="hint" id="hint"></p>
+		</main>
+		<script>
+			const params = new URLSearchParams(location.search);
+			const next = params.get('next') || '/docs/';
+			const hint = document.getElementById('hint');
+			const error = document.getElementById('error');
+			if (params.get('reason') === 'unconfigured') {
+				hint.textContent =
+					'DOCS_PASSPHRASE is not set on this deployment. Add it on the Vercel project (Production + Preview) and redeploy.';
+			}
+			document.getElementById('gate').addEventListener('submit', async (event) => {
+				event.preventDefault();
+				error.style.display = 'none';
+				const passphrase = document.getElementById('passphrase').value;
+				try {
+					const res = await fetch('/api/docs-unlock', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ passphrase }),
+					});
+					const body = await res.json().catch(() => ({}));
+					if (!res.ok) {
+						error.textContent =
+							body.error ||
+							(res.status === 503
+								? 'Passphrase is not configured on this deployment.'
+								: 'Passphrase did not match.');
+						error.style.display = 'block';
+						return;
+					}
+					const target = next.startsWith('/docs') ? next : '/docs/';
+					location.assign(target);
+				} catch {
+					error.textContent = 'Could not reach the unlock endpoint.';
+					error.style.display = 'block';
+				}
+			});
+		</script>
+	</body>
+</html>

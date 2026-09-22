@@ -1,0 +1,109 @@
+---
+title: Contributing & docs automation
+description: How this Starlight site is generated, what the Cursor / git hooks actually do, and how to keep the doc-map from going stale.
+---
+
+import { Aside, Badge, Card, CardGrid, Steps } from '@astrojs/starlight/components';
+
+This site lives in [`docs-site/`](https://github.com/minesh16/woundcare-test/tree/main/docs-site) in the **same repo** as the app (not a separate repository). Generator: **Astro 7 + Starlight**, diagrams via **`astro-mermaid`** (must be registered *before* Starlight in `astro.config.mjs`). Build output is static HTML, copied into the Expo export at `dist/docs` so it is served at [mendwise.vercel.app/docs](https://mendwise.vercel.app/docs).
+
+There is **no** `vercel.json` in this folder. Root `vercel.json` stays the single Vercel config (`maxDuration` only lives there).
+
+Team: Minesh, Raymond, Trang.
+
+<CardGrid>
+	<Card title="Edit Markdown" icon="pencil">
+		Pages live under `docs-site/src/content/docs/`. Mermaid diagrams get pan/zoom + fullscreen from `public/mermaid-viewer.js`.
+	</Card>
+	<Card title="Cursor hook" icon="information">
+		Project hooks only run in a **trusted** workspace. Cursor Settings → Hooks → trust this folder.
+	</Card>
+	<Card title="Passphrase" icon="padlock">
+		`POST /api/docs-unlock` sets an HttpOnly cookie. Middleware gates `/docs` only; the app and `/api/v1/*` stay public.
+	</Card>
+</CardGrid>
+
+## Trust the workspace (or the hook is a no-op)
+
+Project hooks in [`.cursor/hooks.json`](https://github.com/minesh16/woundcare-test/blob/main/.cursor/hooks.json) load only in a trusted Cursor workspace.
+
+<Steps>
+
+1. Open **Cursor Settings → Hooks**.
+2. Trust this workspace (`woundcare-test`) so `.cursor/hooks.json` is allowed to run.
+3. Confirm `afterShellExecution` → `node .cursor/hooks/docs-check.mjs` is listed. If it is missing, reload the window after trusting.
+
+</Steps>
+
+This cannot be flipped from a settings.json file. Until you trust the workspace, only the git `post-commit` stdout nudge runs.
+
+## What is automated vs manual
+
+| Mechanism | When it fires | What it does | What it does **not** do |
+|---|---|---|---|
+| Cursor `afterShellExecution` hook | A `git commit` run in a **Cursor-visible** shell (integrated terminal or the agent's Shell tool) | Maps changed paths → doc pages, updates `<!-- docs-hook:auto:* -->` regions, stamps the page, logs to `.cursor/hooks/doc-update.log`, shows a `user_message` | Auto-commit, auto-push, rewrite hand-written prose, call Composer / an LLM |
+| Git `post-commit` hook (`simple-git-hooks`) | **Every** `git commit`, including an external terminal | Prints a reminder to stdout | Edit files, invoke Cursor, invoke AI |
+| Humans | When the mechanical patch is wrong or incomplete | Rewrite architecture prose, diagrams, callouts | — |
+
+<Aside type="caution" title="Known limitation">
+Cursor Hooks have **no native "on git commit" event**. The Cursor hook only sees commits that go through a shell Cursor is watching. A commit in iTerm, GitHub Desktop, or another editor **will not** run the docs-check. The git `post-commit` hook is a backstop that **only prints a reminder** — a raw git hook cannot open Composer.
+</Aside>
+
+`failClosed` is `false`: a hook crash must never block a commit. `loop_limit` is `1`.
+
+## The doc-map (most likely to go stale)
+
+[`.cursor/hooks/doc-map.json`](https://github.com/minesh16/woundcare-test/blob/main/.cursor/hooks/doc-map.json) is an explicit table from **source globs → docs-site pages**. The hook will not invent new pages. If you add a top-level module (`src/foo/`, a new `api/` tree, …):
+
+1. Add a glob → page entry in `doc-map.json`.
+2. Add or extend a page under `docs-site/src/content/docs/`.
+3. Put any facts you want mechanically refreshed between:
+
+```html
+<!-- docs-hook:auto:start:some-id -->
+…generated table or list…
+<!-- docs-hook:auto:end:some-id -->
+```
+
+Hand-written prose, Starlight asides, and `:::caution` / `> **Unverified:**` notes **outside** those markers are preserved. The hook merges; it does not overwrite the whole file.
+
+Never put secrets in a mapped region. The hook refuses to write `.env*` contents and will not copy credential-shaped assignments into docs.
+
+## Stamp
+
+Auto-touched pages get a trailing HTML comment:
+
+```html
+<!-- docs-hook: last auto-checked against commit <short-sha> on <ISO-date> -->
+```
+
+That is how you tell a machine pass from an author edit. Review the working-tree diff and commit it yourself like any other change.
+
+## Log
+
+Every Cursor-hook run appends to `.cursor/hooks/doc-update.log` (gitignored): files in the commit, pages touched, pages skipped and why. If `docs-site/` is missing, the hook no-ops.
+
+## Manual docs workflow
+
+```bash
+cd docs-site
+npm run dev      # http://localhost:4321/docs/
+npm run build    # must succeed before you call the site done
+```
+
+You can also run the checker without committing:
+
+```bash
+node .cursor/hooks/docs-check.mjs
+```
+
+It diffs `HEAD` the same way. Still only edits files under `docs-site/`.
+
+## Deploy (same Vercel project)
+
+The Expo app's `buildCommand` runs `scripts/build-vercel.mjs`: Astro build, then `expo export -p web`, then copy `docs-site/dist` → `dist/docs`.
+
+Set **`DOCS_PASSPHRASE`** on the existing MendWise Vercel project (Production + Preview, server-side, never `EXPO_PUBLIC_`). Vercel binds env at deploy time, so add the variable **and redeploy**. Until it is set, `/docs` redirects to the gate with `reason=unconfigured`.
+
+<Badge text="Do not add api/**/index.ts" variant="danger" />
+<Badge text="maxDuration only in root vercel.json" variant="caution" />

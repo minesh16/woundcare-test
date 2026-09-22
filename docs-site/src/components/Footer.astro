@@ -1,0 +1,46 @@
+---
+import Default from '@astrojs/starlight/components/Footer.astro';
+import { changelog, docsVersion } from '../data/changelog';
+
+const base = import.meta.env.BASE_URL.endsWith('/')
+	? import.meta.env.BASE_URL
+	: `${import.meta.env.BASE_URL}/`;
+---
+
+<Default><slot /></Default>
+
+<section class="mw-version-log" aria-labelledby="mw-changelog-heading">
+	<h2 id="mw-changelog-heading">
+		<span class="mw-version-log__title">Version log</span>
+		<code class="mw-version-log__current">docs {docsVersion}</code>
+	</h2>
+	<div class="mw-version-log__table-wrap">
+		<table>
+			<thead>
+				<tr>
+					<th>Date</th>
+					<th>Version</th>
+					<th>Change</th>
+				</tr>
+			</thead>
+			<tbody>
+				{
+					changelog.map((row) => (
+						<tr>
+							<td>{row.date}</td>
+							<td>
+								<code>{row.version}</code>
+							</td>
+							<td>{row.change}</td>
+						</tr>
+					))
+				}
+			</tbody>
+		</table>
+	</div>
+	<p class="mw-version-log__note">
+		This table is the docs site history. What the deployed app can actually do is
+		<a href={`${base}operations/status/`}>production status</a>
+		(re-check <code>GET /api/v1/assessments/health</code>). Roadmap items are not shipped.
+	</p>
+</section>

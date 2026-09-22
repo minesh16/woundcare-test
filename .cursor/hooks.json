@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "hooks": {
+    "afterShellExecution": [
+      {
+        "command": "node .cursor/hooks/docs-check.mjs",
+        "matcher": "git\\s+commit",
+        "failClosed": false,
+        "loop_limit": 1,
+        "timeout": 30
+      }
+    ]
+  }
+}

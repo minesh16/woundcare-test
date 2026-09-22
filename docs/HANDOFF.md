@@ -170,6 +170,17 @@ not enough on its own; it needs a redeploy.**
 3. `maxDuration` for plain Vercel Node functions comes from `vercel.json`, not from an
    `export const config` in the handler (that is Next.js route-segment config).
 
+### Documentation site (`/docs`)
+Starlight lives in `docs-site/` and is copied into `dist/docs` by `scripts/build-vercel.mjs`
+(the root `buildCommand`). It is **not** a second Vercel project. `/docs` is passphrase-gated
+(`DOCS_PASSPHRASE` → `POST /api/docs-unlock` HttpOnly cookie; `middleware.mjs` matcher is
+`/docs` only). The Expo app and `/api/v1/*` stay public. Local authoring: `cd docs-site && npm run dev`
+(now at `http://localhost:4321/docs/`).
+
+Until `DOCS_PASSPHRASE` is set on the Vercel project **and redeployed**, `/docs` shows the gate
+with `reason=unconfigured`. Trust this workspace in **Cursor Settings → Hooks** or the docs-check
+hook will not load.
+
 ### Verify
 `npm test` runs all four offline suites:
 - `npm run test:rules` — **97/97** (was 66; the 66 are asserted unchanged when no VLM is supplied)

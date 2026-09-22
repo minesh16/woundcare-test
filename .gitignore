@@ -42,3 +42,6 @@ example
 /ios
 /android
 .vercel
+
+# Docs-hook run log (working tree only)
+.cursor/hooks/doc-update.log

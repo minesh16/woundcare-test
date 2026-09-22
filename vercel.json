@@ -1,8 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "npx expo export -p web",
+  "buildCommand": "node scripts/build-vercel.mjs",
   "outputDirectory": "dist",
   "functions": {
+    "api/docs-unlock.ts": {
+      "maxDuration": 10
+    },
     "api/analyze.ts": {
       "maxDuration": 30
     },
