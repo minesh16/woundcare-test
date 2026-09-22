@@ -1,7 +1,13 @@
 /** Docs-site version log. App capability lives on /operations/status/, not here. */
-export const docsVersion = '0.2.1';
+export const docsVersion = '0.2.2';
 
 export const changelog: { date: string; version: string; change: string }[] = [
+	{
+		date: '2026-09-23',
+		version: '0.2.2',
+		change:
+			'Live at /docs behind the passphrase gate (middleware must be middleware.ts, not .mjs). Production status re-checked: Supabase store live — SUPABASE_URL was misspelled, not missing.',
+	},
 	{
 		date: '2026-09-23',
 		version: '0.2.1',

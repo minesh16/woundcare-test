@@ -139,7 +139,7 @@ client bundle). With Supabase unset everything still works and the audit record 
 - The report system prompt was duplicated between the endpoint and the smoke test, so the test was
   exercising a paraphrase. Extracted to `src/assessment/reportPrompt.ts`; both import it.
 
-### Production status (mendwise.vercel.app, 21 Sep 2026)
+### Production status (mendwise.vercel.app, 23 Sep 2026)
 `GET /api/v1/assessments/health` is the authoritative answer to "what does this deployment have".
 
 | Capability | State |
@@ -147,17 +147,25 @@ client bundle). With Supabase unset everything still works and the audit record 
 | Deterministic engine | ✅ always — never depends on anything below |
 | AI Gateway (VLM + report) | ✅ `openai/gpt-5` / `gemini-2.5-flash` on the free tier |
 | SAM 2 segmentation | ✅ `REPLICATE_API_TOKEN` present |
-| Supabase persistence + audit | ❌ **`SUPABASE_URL` missing from the Vercel project** |
+| Supabase persistence + audit | ✅ live since 23 Sep 2026 — rows are being written again |
+| Docs site at `/docs` | ✅ live, passphrase-gated (`DOCS_PASSPHRASE`) |
 
 Verified live against prod: all 7 v1 endpoints reach their handlers; `evaluate` returns pathway 16
 with the correct axes; the safety gate withholds the pathway and returns both plain-English reasons
 on a blurred/no-scale input; `report` returns `source: llm` having passed the cage check.
 
-⚠️ **Until `SUPABASE_URL` is added and the project redeployed, nothing is persisted and no
-`audit_log` rows are written** (they go to stdout instead). Assessments still compute and return
-correctly — the engine has no database dependency — but the audit trail, which is the whole point of
-the schema, is not being captured. **Vercel binds env vars at deploy time, so adding the variable is
-not enough on its own; it needs a redeploy.**
+**Resolved 23 Sep 2026 — the store was never missing, it was misspelled.** The Vercel project had
+`SUABASE_URL`, so `process.env.SUPABASE_URL` was `undefined` and health honestly reported `false`.
+That got written down here as "missing" and stayed that way for two days, during which assessments
+computed correctly and persisted nothing. Renamed and redeployed; `capabilities.store` is now `true`.
+
+Keep two things from this:
+- **A misspelled env var is indistinguishable from an absent one at runtime.** `vercel env ls` shows
+  the spelling; the health endpoint cannot. Check the list, not just the boolean.
+- **Vercel binds env vars at deploy time**, so fixing a name does nothing until the next deploy.
+
+It failed quietly because the engine has no database dependency — a dark store cannot block a
+clinical result, it can only drop the audit trail, which is the whole point of the schema.
 
 ### Deployment gotchas (both cost a bad prod deploy — don't rediscover them)
 1. **Vercel functions do not resolve tsconfig `paths`.** Any `src/` module reachable from `api/`
@@ -169,6 +177,13 @@ not enough on its own; it needs a redeploy.**
    404'd while every sibling resolved, so the create route is an explicit `create.ts`.
 3. `maxDuration` for plain Vercel Node functions comes from `vercel.json`, not from an
    `export const config` in the handler (that is Next.js route-segment config).
+4. **Routing Middleware must be `middleware.ts` (or `.js`) at the repo root.** As `middleware.mjs`
+   it was never bundled — silently, with no build warning — so the `/docs` gate did not run and
+   every docs page answered 200 to anyone. A missing auth gate fails *open* and looks identical to
+   a working one from a logged-in browser. Verify from outside after any change to it:
+   `curl -s -o /dev/null -w "%{http_code} %{redirect_url}\n" https://mendwise.vercel.app/docs/`
+   should print a `302` to `/docs/gate/`, and **without** `reason=unconfigured` (which would mean
+   the middleware ran but could not see `DOCS_PASSPHRASE`).
 
 ### Documentation site (`/docs`)
 Starlight lives in `docs-site/` and is copied into `dist/docs` by `scripts/build-vercel.mjs`
@@ -177,9 +192,11 @@ Starlight lives in `docs-site/` and is copied into `dist/docs` by `scripts/build
 `/docs` only). The Expo app and `/api/v1/*` stay public. Local authoring: `cd docs-site && npm run dev`
 (now at `http://localhost:4321/docs/`).
 
-Until `DOCS_PASSPHRASE` is set on the Vercel project **and redeployed**, `/docs` shows the gate
-with `reason=unconfigured`. Trust this workspace in **Cursor Settings → Hooks** or the docs-check
-hook will not load.
+Live and verified 23 Sep 2026: `/docs/*` 302s to the gate without a cookie, the gate page itself
+stays open, a wrong passphrase gets a 401 from `/api/docs-unlock`, and the app and `/api/v1/*` are
+unaffected. `DOCS_PASSPHRASE` is set on Production and Preview. If it is ever removed, the gate
+shows `reason=unconfigured` and fails closed. The workspace is trusted in Cursor Settings → Hooks,
+so the docs-check hook loads.
 
 ### Verify
 `npm test` runs all four offline suites:

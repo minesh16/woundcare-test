@@ -30,7 +30,7 @@ export default defineConfig({
 			head: [
 				{
 					tag: 'script',
-					attrs: { src: `${base}/mermaid-viewer.js?v=0.2.1`, defer: true },
+					attrs: { src: `${base}/mermaid-viewer.js?v=0.2.2`, defer: true },
 				},
 			],
 			social: [
