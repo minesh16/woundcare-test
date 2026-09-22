@@ -5,7 +5,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
  * POST /api/docs-unlock — set an HttpOnly cookie if the passphrase matches.
  * DELETE /api/docs-unlock — clear it.
  *
- * Cookie name + HMAC message must stay in sync with middleware.mjs.
+ * Cookie name + HMAC message must stay in sync with middleware.ts.
  * Env: DOCS_PASSPHRASE (server-side, never EXPO_PUBLIC_).
  */
 const COOKIE = 'mw_docs';

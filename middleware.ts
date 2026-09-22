@@ -2,6 +2,9 @@
  * Passphrase gate for /docs on the Expo Vercel project.
  * Matcher keeps this off the app and off /api/* (except we never match those).
  *
+ * Must stay named middleware.ts at the repo root — Vercel only detects that name
+ * (or middleware.js). Named middleware.mjs it was silently ignored and /docs was open.
+ *
  * Cookie name + HMAC message must stay in sync with api/docs-unlock.ts.
  */
 const COOKIE = 'mw_docs';
@@ -11,8 +14,8 @@ export const config = {
 	matcher: ['/docs', '/docs/(.*)'],
 };
 
-function parseCookie(header) {
-	const out = {};
+function parseCookie(header: string | null): Record<string, string> {
+	const out: Record<string, string> = {};
 	if (!header) return out;
 	for (const part of header.split(';')) {
 		const i = part.indexOf('=');
@@ -22,7 +25,7 @@ function parseCookie(header) {
 	return out;
 }
 
-function timingSafeEqual(a, b) {
+function timingSafeEqual(a: string, b: string): boolean {
 	if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length || a.length === 0) {
 		return false;
 	}
@@ -31,7 +34,7 @@ function timingSafeEqual(a, b) {
 	return mismatch === 0;
 }
 
-async function token(passphrase) {
+async function token(passphrase: string): Promise<string> {
 	const key = await crypto.subtle.importKey(
 		'raw',
 		new TextEncoder().encode(passphrase),
@@ -43,13 +46,13 @@ async function token(passphrase) {
 	return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-function next() {
+function next(): Response {
 	return new Response(null, {
 		headers: { 'x-middleware-next': '1' },
 	});
 }
 
-function isPublicDocsPath(pathname) {
+function isPublicDocsPath(pathname: string): boolean {
 	return (
 		pathname === '/docs/gate' ||
 		pathname.startsWith('/docs/gate/') ||
@@ -58,7 +61,7 @@ function isPublicDocsPath(pathname) {
 	);
 }
 
-function sendToGate(request, extra = {}) {
+function sendToGate(request: Request, extra: Record<string, string> = {}): Response {
 	const gate = new URL('/docs/gate/', request.url);
 	for (const [key, value] of Object.entries(extra)) gate.searchParams.set(key, value);
 	const url = new URL(request.url);
@@ -69,7 +72,7 @@ function sendToGate(request, extra = {}) {
 	return Response.redirect(gate, 302);
 }
 
-export default async function middleware(request) {
+export default async function middleware(request: Request): Promise<Response> {
 	const { pathname } = new URL(request.url);
 	if (isPublicDocsPath(pathname)) return next();
 

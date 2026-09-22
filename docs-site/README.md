@@ -25,7 +25,7 @@ Root `vercel.json` `buildCommand` is `node scripts/build-vercel.mjs`:
 
 Set **`DOCS_PASSPHRASE`** on the existing MendWise Vercel project (Production + Preview, server-side — never `EXPO_PUBLIC_`). Then redeploy; Vercel binds env at deploy time.
 
-`middleware.mjs` only matches `/docs`. `POST /api/docs-unlock` sets an HttpOnly cookie. There is no `vercel.json` in this folder on purpose — do not add one, and do not change the project's Root Directory to `docs-site/`.
+`middleware.ts` only matches `/docs`. `POST /api/docs-unlock` sets an HttpOnly cookie. There is no `vercel.json` in this folder on purpose — do not add one, and do not change the project's Root Directory to `docs-site/`.
 
 ## What not to do
 

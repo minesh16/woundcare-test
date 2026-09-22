@@ -173,7 +173,7 @@ not enough on its own; it needs a redeploy.**
 ### Documentation site (`/docs`)
 Starlight lives in `docs-site/` and is copied into `dist/docs` by `scripts/build-vercel.mjs`
 (the root `buildCommand`). It is **not** a second Vercel project. `/docs` is passphrase-gated
-(`DOCS_PASSPHRASE` → `POST /api/docs-unlock` HttpOnly cookie; `middleware.mjs` matcher is
+(`DOCS_PASSPHRASE` → `POST /api/docs-unlock` HttpOnly cookie; `middleware.ts` matcher is
 `/docs` only). The Expo app and `/api/v1/*` stay public. Local authoring: `cd docs-site && npm run dev`
 (now at `http://localhost:4321/docs/`).
 
