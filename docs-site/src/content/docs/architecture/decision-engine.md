@@ -15,7 +15,7 @@ The reconciliation flowchart below is pan/zoomable (toolbar, scroll, drag, fulls
 | `CWCS_RULES_VERSION` | `cwcs-2024.1+recon.1` |
 | `TISSUE_PRESENCE_THRESHOLD` | `10` (% of wound bed) |
 | Pathways | 26 (ids 1–26) |
-| Offline engine tests | `npm run test:rules` — 97 assertions (66 Phase-0 outcomes must stay byte-identical when no VLM is supplied) |
+| Offline engine tests | `npm run test:rules` — re-run; do not trust a stale count |
 <!-- docs-hook:auto:end:facts -->
 
 :::caution
@@ -225,3 +225,5 @@ VLM-filled exudate caps at `'medium'` even if nothing else fired. Blur forces `'
 [`toEngineInputs()`](https://github.com/minesh16/woundcare-test/blob/main/src/decision/rules.ts) maps the Zustand `ScanSession` onto `EngineInputs` so the existing result screen is already on the CWCS engine. `assess()` still computes a demo urgency / classification for the headline, then **overlays** engine referrals (an urgent flag raises urgency to `immediate`) and replaces the dressing string with the pathway when one exists.
 
 V2 evaluate / run pass `EngineInputs` directly, including `vlm` and `periwound`.
+
+<!-- docs-hook: last auto-checked against commit 72b0cc6 on 2026-09-23 -->

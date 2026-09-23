@@ -12,10 +12,10 @@ Behavioural deep-dive: [Decision engine](/docs/architecture/decision-engine/). T
 |---|---|---|
 | `engine.ts` | yes | The whole engine: pathways, reconcile*, molnlyckeFlags, evaluate |
 | `engine.types.ts` | types only | `EngineInputs`, `EngineResult`, `VlmFeatures`, … |
-| `vlm.schema.ts` | yes (Zod) | Runtime mirror of `VlmFeatures`; `VLM_SYSTEM_PROMPT` |
 | `reportCage.ts` | yes | `violatesCage(text, result)` — wrong pathway / invented dressing |
 | `rules.ts` | yes | `toEngineInputs`, `assess` (session → UI `AssessmentResult`) |
 | `types.ts` | types + defaults | `ScanSession`, `CvResult`, questionnaire unions, body zones |
+| `vlm.schema.ts` | yes (Zod) | Runtime mirror of `VlmFeatures`; `VLM_SYSTEM_PROMPT` |
 <!-- docs-hook:auto:end:files -->
 
 ## Why the split
@@ -33,3 +33,5 @@ Behavioural deep-dive: [Decision engine](/docs/architecture/decision-engine/). T
 `rules.ts`: `assess`, `toEngineInputs`, `CLASSIFICATION_LABELS`, `URGENCY_LABELS`, `URGENCY_ACTIONS`.
 
 `types.ts` questionnaire exudate uses `none | moderate | heavy` (UI). The engine uses `low | moderate | high`. `toEngineInputs` maps `none → low`, `heavy → high`.
+
+<!-- docs-hook: last auto-checked against commit 72b0cc6 on 2026-09-23 -->

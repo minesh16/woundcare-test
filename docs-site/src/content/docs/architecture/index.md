@@ -130,3 +130,5 @@ The [pipeline page](/docs/architecture/pipeline/) walks that list as a data-flow
 The original demo flow (`capture → analyze → location → questions → result`) still compiles and runs with the flag off. `assess()` in [`src/decision/rules.ts`](https://github.com/minesh16/woundcare-test/blob/main/src/decision/rules.ts) already calls `evaluate()`, so even the "legacy" result screen is backed by the CWCS engine.
 
 The V2 namespace adds server-side SAM 2, mask-restricted tissue, VLM, report LLM, SSE, persistence, and the comparison arm. Callers in [`src/assessment/client.ts`](https://github.com/minesh16/woundcare-test/blob/main/src/assessment/client.ts) return `null` when the flag is off or the network fails, so a missing server never breaks the demo.
+
+<!-- docs-hook: last auto-checked against commit 72b0cc6 on 2026-09-23 -->
