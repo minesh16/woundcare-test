@@ -1,11 +1,11 @@
 import { router } from 'expo-router';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
-import { BodyMap } from '@/components/BodyMap';
+import { BodySelector } from '@/components/BodySelector';
 import { DisclaimerFooter } from '@/components/DisclaimerFooter';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { ProgressHeader } from '@/components/ProgressHeader';
-import { AppColors } from '@/constants/appTheme';
+import { AppColors, AppLayout } from '@/constants/appTheme';
 import { useSessionStore } from '@/store/sessionStore';
 
 export default function LocationScreen() {
@@ -16,7 +16,7 @@ export default function LocationScreen() {
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
         <ProgressHeader step={2} title="Where is the wound?" />
-        <BodyMap selectedZone={bodyZone} onSelect={setBodyZone} />
+        <BodySelector selectedZone={bodyZone} onSelect={setBodyZone} />
       </ScrollView>
 
       <View style={styles.footer}>
@@ -39,10 +39,16 @@ const styles = StyleSheet.create({
   content: {
     padding: 20,
     gap: 16,
+    width: '100%',
+    maxWidth: AppLayout.maxContentWidth,
+    alignSelf: 'center',
   },
   footer: {
     paddingHorizontal: 20,
     paddingBottom: 12,
     gap: 8,
+    width: '100%',
+    maxWidth: AppLayout.maxContentWidth,
+    alignSelf: 'center',
   },
 });

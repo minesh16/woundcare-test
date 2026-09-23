@@ -24,14 +24,26 @@ export type BodyZone =
   | 'forearm_right'
   | 'hand_left'
   | 'hand_right'
+  | 'elbow_left'
+  | 'elbow_right'
   | 'hip_left'
   | 'hip_right'
+  | 'buttock_left'
+  | 'buttock_right'
   | 'thigh_left'
   | 'thigh_right'
+  | 'knee_left'
+  | 'knee_right'
   | 'lower_leg_left'
   | 'lower_leg_right'
+  | 'ankle_left'
+  | 'ankle_right'
+  | 'heel_left'
+  | 'heel_right'
   | 'foot_left'
-  | 'foot_right';
+  | 'foot_right'
+  | 'toes_left'
+  | 'toes_right';
 
 /** Wound-bed centroid in fractional image coordinates (0–1), used to seed SAM 2. */
 export type ImagePoint = { xPct: number; yPct: number };
