@@ -97,7 +97,7 @@ sequenceDiagram
   Analyze->>Location: Continue
   User->>Location: Tap body zone
   Location->>Questions: Continue
-  User->>Questions: Duration, exudate, pain, warmth,<br/>infection, perfusion; ABPI behind clinician toggle
+  User->>Questions: Duration, exudate, pain, warmth,<br/>infection, perfusion,<br/>ABPI behind clinician toggle
   Questions->>Result: assess(session) via engine.ts
   Result-->>User: What to do / what we saw / dressing / Clinician view
   opt assessmentV2

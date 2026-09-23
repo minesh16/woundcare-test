@@ -23,6 +23,27 @@
 		return btn;
 	}
 
+	/**
+	 * Pin the mermaid svg to an explicit pixel size taken from its viewBox.
+	 * Mermaid ships `width="100%"` plus an inline `max-width`, which inside a
+	 * shrink-to-fit canvas leaves the rendered size undefined — and makes any
+	 * fit-to-stage maths guesswork. Returns the size we settled on.
+	 */
+	function sizeSvg(svg) {
+		const vb = svg.viewBox?.baseVal;
+		let width = vb?.width || 0;
+		let height = vb?.height || 0;
+		if (!width || !height) {
+			const rect = svg.getBoundingClientRect();
+			width = rect.width || 640;
+			height = rect.height || 360;
+		}
+		svg.style.width = `${width}px`;
+		svg.style.height = `${height}px`;
+		svg.style.maxWidth = 'none';
+		return { width: Math.max(width, 1), height: Math.max(height, 1) };
+	}
+
 	function attachPanZoom(stage) {
 		const canvas = stage.querySelector('.mw-diagram__canvas');
 		if (!canvas || canvas.dataset.mwPan === '1') return;
@@ -37,18 +58,20 @@
 		const fit = () => {
 			const svg = canvas.querySelector('svg');
 			if (!svg) return;
-			const box = svg.getBBox?.() ?? { width: svg.clientWidth, height: svg.clientHeight };
+			const { width: sw, height: sh } = sizeSvg(svg);
 			const pad = 32;
-			const sw = Math.max(box.width, 1);
-			const sh = Math.max(box.height, 1);
 			const scale = Math.min(
 				(stage.clientWidth - pad) / sw,
 				(stage.clientHeight - pad) / sh,
 				1.5,
 			);
 			state.scale = Number.isFinite(scale) && scale > 0 ? scale : 1;
-			state.x = (stage.clientWidth - sw * state.scale) / 2 - (box.x || 0) * state.scale;
-			state.y = (stage.clientHeight - sh * state.scale) / 2 - (box.y || 0) * state.scale;
+			// The canvas is a shrink-to-fit box pinned at the stage's top-left with
+			// transform-origin 0 0, so the svg's own box starts at (0,0) in canvas
+			// space and centring is a plain translate. (getBBox would be wrong here:
+			// it reports viewBox units, which are not the svg's rendered CSS size.)
+			state.x = (stage.clientWidth - sw * state.scale) / 2;
+			state.y = (stage.clientHeight - sh * state.scale) / 2;
 			apply();
 		};
 
@@ -156,43 +179,83 @@
 		return { zoomAt, fit, state };
 	}
 
-	function enhanceHost(host) {
-		if (!(host instanceof Element)) return;
-		if (host.dataset.mwEnhanced === '1' || host.closest('.mw-diagram-dialog')) return;
+	function topSvg(root) {
+		return [...root.querySelectorAll('svg')].find((node) => !node.parentElement?.closest('svg'));
+	}
 
-		const svg = [...host.querySelectorAll('svg')].find((node) => !node.parentElement?.closest('svg'));
-		if (!svg) return;
-
-		host.dataset.mwEnhanced = '1';
-		host.classList.add('mw-diagram');
-		host.setAttribute('role', 'group');
-		host.setAttribute('aria-label', 'Diagram with pan and zoom');
-
+	function buildToolbar(lastLabel, lastIcon, hintText) {
 		const toolbar = document.createElement('div');
 		toolbar.className = 'mw-diagram__toolbar';
 		const hint = document.createElement('span');
 		hint.className = 'mw-diagram__hint';
-		hint.textContent = 'Scroll or pinch to zoom · drag to pan';
+		hint.textContent = hintText;
+		const spacer = document.createElement('span');
+		spacer.className = 'mw-spacer';
 		toolbar.append(
 			button('in', 'Zoom in', ICONS.plus),
 			button('out', 'Zoom out', ICONS.minus),
 			button('fit', 'Fit', ICONS.fit),
-			(() => {
-				const el = document.createElement('span');
-				el.className = 'mw-spacer';
-				return el;
-			})(),
+			spacer,
 			hint,
-			button('full', 'Fullscreen', ICONS.full),
+			button(lastLabel === 'Close' ? 'close' : 'full', lastLabel, lastIcon),
 		);
+		return toolbar;
+	}
 
+	/**
+	 * astro-mermaid renders straight into `pre.mermaid` — on first paint, and again
+	 * on every `data-theme` change — with `diagram.innerHTML = svg`. Anything we put
+	 * inside that <pre> is therefore destroyed without warning, which is what killed
+	 * the toolbar. So the viewer lives in a <figure> NEXT to the <pre>: mermaid keeps
+	 * its scratch element (hidden), we own ours. `data-mw-src` holds the rendered
+	 * svg's id, so a re-render (new random id) rebuilds the figure instead of being
+	 * skipped by a one-shot "already enhanced" flag.
+	 */
+	function enhanceHost(host) {
+		if (!(host instanceof Element)) return;
+		if (host.closest('.mw-diagram-dialog')) return;
+
+		const svg = topSvg(host);
+		const existing =
+			host.nextElementSibling?.classList.contains('mw-diagram') &&
+			host.nextElementSibling.dataset.mwFor === 'mermaid'
+				? host.nextElementSibling
+				: null;
+
+		if (!svg) {
+			// No SVG in the <pre>: either not rendered yet, or mermaid painted its red
+			// error box. An error box means the old figure is stale — drop it and let
+			// the <pre> show the error.
+			if (existing && host.childElementCount > 0) {
+				existing.remove();
+				host.classList.remove('mw-diagram__source');
+			}
+			return;
+		}
+
+		const sig = svg.id || String(svg.childElementCount);
+		if (existing && existing.dataset.mwSrc === sig) return;
+
+		const figure = document.createElement('figure');
+		figure.className = 'mw-diagram';
+		figure.dataset.mwFor = 'mermaid';
+		figure.dataset.mwSrc = sig;
+		figure.setAttribute('role', 'group');
+		figure.setAttribute('aria-label', 'Diagram with pan and zoom');
+
+		const toolbar = buildToolbar('Fullscreen', ICONS.full, 'Scroll or pinch to zoom · drag to pan');
 		const stage = document.createElement('div');
 		stage.className = 'mw-diagram__stage';
 		const canvas = document.createElement('div');
 		canvas.className = 'mw-diagram__canvas';
+		// Move, not clone: two copies would collide on mermaid's generated ids.
 		canvas.append(svg);
 		stage.append(canvas);
-		host.replaceChildren(toolbar, stage);
+		figure.append(toolbar, stage);
+
+		if (existing) existing.replaceWith(figure);
+		else host.after(figure);
+		host.classList.add('mw-diagram__source');
 
 		const controls = attachPanZoom(stage);
 
@@ -206,15 +269,22 @@
 			if (act === 'in') controls.zoomAt(cx, cy, 1.25);
 			else if (act === 'out') controls.zoomAt(cx, cy, 0.8);
 			else if (act === 'fit') controls.fit();
-			else if (act === 'full') openFullscreen(svg);
+			else if (act === 'full') openFullscreen(topSvg(canvas));
 		});
 	}
 
+	let scanQueued = false;
 	function scan() {
-		document.querySelectorAll('pre.mermaid, div.mermaid').forEach(enhanceHost);
+		if (scanQueued) return;
+		scanQueued = true;
+		requestAnimationFrame(() => {
+			scanQueued = false;
+			document.querySelectorAll('pre.mermaid, div.mermaid').forEach(enhanceHost);
+		});
 	}
 
 	function openFullscreen(svg) {
+		if (!svg) return;
 		let dialog = document.getElementById('mw-diagram-dialog');
 		if (!dialog) {
 			dialog = document.createElement('dialog');
@@ -229,22 +299,10 @@
 		dialog.innerHTML = '';
 		const figure = document.createElement('figure');
 		figure.className = 'mw-diagram';
-		const toolbar = document.createElement('div');
-		toolbar.className = 'mw-diagram__toolbar';
-		const hint = document.createElement('span');
-		hint.className = 'mw-diagram__hint';
-		hint.textContent = 'Scroll / pinch to zoom · drag to pan · Esc to close';
-		toolbar.append(
-			button('in', 'Zoom in', ICONS.plus),
-			button('out', 'Zoom out', ICONS.minus),
-			button('fit', 'Fit', ICONS.fit),
-			(() => {
-				const el = document.createElement('span');
-				el.className = 'mw-spacer';
-				return el;
-			})(),
-			hint,
-			button('close', 'Close', ICONS.close),
+		const toolbar = buildToolbar(
+			'Close',
+			ICONS.close,
+			'Scroll / pinch to zoom · drag to pan · Esc to close',
 		);
 		const stage = document.createElement('div');
 		stage.className = 'mw-diagram__stage';

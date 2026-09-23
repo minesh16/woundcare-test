@@ -91,12 +91,22 @@
 }
 
 /* Mermaid viewer */
+
+/* The <pre> mermaid renders into stays in the DOM as its scratch element (it
+   re-renders on every theme change) but is never shown; the viewer figure that
+   mermaid-viewer.js inserts after it is what the reader sees. */
+pre.mermaid.mw-diagram__source {
+	display: none !important;
+}
+
 .mw-diagram {
 	margin: 1.25rem 0;
 	border: 1px solid var(--sl-color-gray-5);
 	border-radius: 0.75rem;
 	background: var(--sl-color-gray-6);
 	overflow: hidden;
+	font-family: var(--sl-font);
+	white-space: normal;
 }
 
 .mw-diagram__toolbar {
@@ -157,18 +167,19 @@
 	cursor: grabbing;
 }
 
+/* Shrink-to-fit and pinned top-left, so the svg's box starts at the canvas
+   origin and fit()/zoomAt() can treat translate+scale as plain canvas maths. */
 .mw-diagram__canvas {
 	position: absolute;
-	inset: 0;
-	display: flex;
-	align-items: center;
-	justify-content: center;
+	top: 0;
+	left: 0;
 	transform-origin: 0 0;
+	will-change: transform;
 }
 
 .mw-diagram__canvas svg {
+	display: block;
 	max-width: none;
-	height: auto;
 }
 
 .mw-diagram-dialog {

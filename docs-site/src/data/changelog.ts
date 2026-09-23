@@ -1,7 +1,13 @@
 /** Docs-site version log. App capability lives on /operations/status/, not here. */
-export const docsVersion = '0.2.2';
+export const docsVersion = '0.2.3';
 
 export const changelog: { date: string; version: string; change: string }[] = [
+	{
+		date: '2026-09-23',
+		version: '0.2.3',
+		change:
+			'Diagram pan/zoom actually works: the viewer now lives in a figure beside the <pre> mermaid re-renders into, instead of inside it (mermaid was wiping the toolbar on every render). Also fixed a semicolon that broke the screen-flow sequence diagram.',
+	},
 	{
 		date: '2026-09-23',
 		version: '0.2.2',
