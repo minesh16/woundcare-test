@@ -15,15 +15,17 @@ export default function LocationScreen() {
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
-        <ProgressHeader step={3} title="Where is the wound?" />
+        <ProgressHeader step={2} title="Where is the wound?" />
         <BodySelector selectedZone={bodyZone} onSelect={setBodyZone} />
       </ScrollView>
 
       <View style={styles.footer}>
         <PrimaryButton
-          label="Continue to questions"
+          label="Continue"
           disabled={!bodyZone}
-          onPress={() => router.push('/questions')}
+          // Before analysis: the location decides whether FUSegNet gives a
+          // second opinion on the outline (foot wounds, spec §6.4).
+          onPress={() => router.push('/analyze')}
         />
         <DisclaimerFooter />
       </View>

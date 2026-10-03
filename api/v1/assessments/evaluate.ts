@@ -1,9 +1,10 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 import { evaluate } from '../../../src/decision/engine';
 import type { EngineInputs } from '../../../src/decision/engine.types';
-import type { AssessmentState } from '../../../src/assessment/state';
-import { appendTimeline, buildAuditRecord, loadAssessment, saveAssessment, writeAudit } from './_store';
+import { newAssessmentId, type AssessmentState } from '../../../src/assessment/state';
+import { evaluateInput } from '../../_contracts';
+import { endpoint } from '../../_http';
+import { appendTimeline, buildAuditRecord, saveAssessment, writeAudit } from './_store';
 
 /**
  * POST /api/v1/assessments/evaluate — the deterministic decision.
@@ -16,39 +17,28 @@ import { appendTimeline, buildAuditRecord, loadAssessment, saveAssessment, write
  * layered on top. With no database the posted state is simply used as-is, and
  * the audit record goes to the logs.
  */
-export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
-  if (req.method !== 'POST') {
-    res.status(405).json({ error: 'Method not allowed' });
-    return;
-  }
+/**
+ * POST /api/v1/assessments/evaluate — the deterministic engine. No image, no
+ * approval needed: it decides from inputs alone. The record id is minted here
+ * (MW-02): a caller-supplied id can no longer overwrite someone else's record.
+ */
+export default endpoint({
+  name: 'evaluate',
+  scope: 'evaluate',
+  input: evaluateInput,
+  handle: async (input) => {
+    const inputs = input.inputs as EngineInputs;
+    const state: AssessmentState = { id: newAssessmentId(), createdAt: new Date().toISOString(), engineInputs: inputs };
+    const result = evaluate(inputs);
+    state.result = result;
 
-  const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body ?? {};
-  const inputs = body.inputs as EngineInputs | undefined;
-  if (!inputs || typeof inputs !== 'object' || !inputs.tissue) {
-    res.status(400).json({ error: 'Missing engine inputs.' });
-    return;
-  }
+    await saveAssessment(state);
+    await writeAudit(buildAuditRecord(state, inputs, result));
+    if (result.status === 'complete') await appendTimeline(state);
 
-  const id = typeof body.assessment_id === 'string' ? body.assessment_id : null;
-  const stored = id ? await loadAssessment(id) : null;
-
-  const state: AssessmentState = {
-    ...(stored ?? {
-      id: id ?? `asmt-local-${Date.now()}`,
-      createdAt: new Date().toISOString(),
-    }),
-    ...(body.state as Partial<AssessmentState> | undefined),
-    engineInputs: inputs,
-  };
-
-  const result = evaluate(inputs);
-  state.result = result;
-
-  await saveAssessment(state);
-  await writeAudit(buildAuditRecord(state, inputs, result));
-  if (result.status === 'complete') {
-    await appendTimeline(state);
-  }
-
-  res.status(200).json({ result, assessment_id: state.id });
-}
+    return {
+      body: { result, assessment_id: state.id },
+      outcome: { status: result.status, pathway: result.cwcsPathwayId, gates: result.gateCodes },
+    };
+  },
+});

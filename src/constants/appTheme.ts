@@ -1,6 +1,8 @@
 export const AppColors = {
   navy: '#0B2545',
   teal: '#1B998B',
+  /** The wound edge drawn over the photo once segmentation has outlined it. */
+  woundEdge: '#FFFF00',
   tealLight: '#E6F5F3',
   white: '#FFFFFF',
   background: '#F7F9FC',

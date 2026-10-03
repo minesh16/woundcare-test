@@ -192,9 +192,9 @@ for (const [name, polygon] of [
   check(`${name}: the outline is editable (≤ ${MAX_POLYGON_POINTS} points)`, outline.length <= MAX_POLYGON_POINTS, outline.length);
   const reRasterised = rasterisePolygon(outline, size, size);
   const overlap = iou(original, reRasterised);
-  // 0.97 is tight: it means the boundary a clinician edits is the boundary the
+  // 0.98 (spec §3.4) is tight: the boundary a clinician edits is the boundary the
   // model drew, not an approximation that quietly moves the wound edge.
-  check(`${name}: round-trip IoU ≥ 0.97`, overlap >= 0.97, Number(overlap.toFixed(4)));
+  check(`${name}: round-trip IoU ≥ 0.98 (spec §3.4)`, overlap >= 0.98, Number(overlap.toFixed(4)));
   check(`${name}: every outline point is in range`, outline.every((p) => p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1));
 }
 

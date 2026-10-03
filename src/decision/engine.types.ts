@@ -88,10 +88,42 @@ export type VlmInfectionSigns = {
 
 export type VlmFeatures = {
   infectionSigns: VlmInfectionSigns;
+  /**
+   * Bone, tendon or a deep cavity visible in the wound (segmentation spec §4.5).
+   * `present` raises an urgent referral, in the probe-to-bone family. Optional
+   * in the type only so records made before the field existed still parse.
+   */
+  deepStructuresVisible?: Tri;
   edgeType: EdgeType;
   visualExudate: VisualExudate;
   tissueCorroboration: TissueCorroboration;
   imageFlags: ImageFlag[];
+};
+
+/**
+ * Clinician-only observations from the questions screen (segmentation spec
+ * §4.4). Field names follow the WMWG core data set (2020, Appendix B) and the
+ * Mölnlycke 10 steps. All optional: absent means "not assessed".
+ */
+export type ClinicalInputs = {
+  /** Palpated temperature vs the same site on the other side. OVERRIDES the image's warmth. */
+  palpatedWarmth?: 'cooler' | 'same' | 'warmer' | 'hot';
+  /** Firm swelling of the surrounding tissue — infection-sign evidence. */
+  induration?: 'yes' | 'no' | 'unsure';
+  /** Documentation only. */
+  oedema?: 'yes' | 'no' | 'unsure';
+  /** `yes` → MDT referral consideration. */
+  underminingTunnelling?: 'yes' | 'no' | 'unsure';
+  /** O'clock position of the undermining (12 = towards the head). Documentation. */
+  underminingClock?: number;
+  /** Measured depth, mm. Documentation; > 0 with a visible cavity notes a full-thickness wound. */
+  depthMm?: number;
+  /**
+   * Monk Skin Tone, 1–10. NEVER a clinical input. Used only to stratify accuracy
+   * and for the dark-skin rule: at ≥ 7, an image that shows no redness is
+   * treated as "uncertain", not as evidence of no infection.
+   */
+  monkTone?: number;
 };
 
 /** Periwound band measurements (HSI, Mölnlycke step 5). */
@@ -114,7 +146,19 @@ export type EngineInputs = {
   periwound?: PeriwoundInputs;
   /** True when the user entered a wound size by hand, standing in for a marker. */
   manualSizeProvided?: boolean;
+  /**
+   * The dominant tissue as CONFIRMED by the clinician on the result screen
+   * (segmentation build spec §4.3). When present it replaces the tissue type the
+   * percentages reconcile to. `necrotic` is still split ischaemic/non-ischaemic
+   * by perfusion, exactly as a measured necrotic bed is.
+   */
+  tissueOverride?: ClinicianTissueChoice;
+  /** Clinician-only observations (spec §4.4). */
+  clinical?: ClinicalInputs;
 };
+
+/** The four dominant-tissue choices offered to the clinician. */
+export type ClinicianTissueChoice = 'necrotic' | 'slough' | 'granulating' | 'epithelialising';
 
 export type ReferralUrgency = 'urgent' | 'mdt' | 'review';
 

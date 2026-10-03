@@ -17,6 +17,8 @@
 
 import type {
   Confidence,
+  ClinicalInputs,
+  ClinicianTissueChoice,
   CwcsPathway,
   EngineInputs,
   EngineResult,
@@ -31,7 +33,10 @@ import type {
   VlmFeatures,
 } from './engine.types';
 
-export const CWCS_RULES_VERSION = 'cwcs-2024.1+recon.1';
+// recon.2 (3 Oct 2026): clinician-confirmed dominant tissue (`tissueOverride`).
+// recon.3 (3 Oct 2026): clinician-only inputs (palpated warmth, induration,
+// undermining), visible deep structures, and the dark-skin erythema rule.
+export const CWCS_RULES_VERSION = 'cwcs-2024.1+recon.3';
 
 /** A tissue class must occupy at least this % of the wound bed to count as "present". */
 export const TISSUE_PRESENCE_THRESHOLD = 10;
@@ -200,12 +205,42 @@ export function reconcileTissue(
     return { tissueType: base, notes };
   }
 
-  if (perfusion === 'ischaemic') return { tissueType: 'necrotic_ischaemic', notes };
-  if (perfusion === 'non_ischaemic') return { tissueType: 'necrotic', notes };
+  return { tissueType: splitNecrotic(perfusion, notes), notes };
+}
+
+/** Necrotic → ischaemic / non-ischaemic by perfusion (Mölnlycke Step 3). */
+function splitNecrotic(perfusion: PerfusionStatus, notes: string[]): TissueType {
+  if (perfusion === 'ischaemic') return 'necrotic_ischaemic';
+  if (perfusion === 'non_ischaemic') return 'necrotic';
   notes.push(
     'Necrotic tissue with perfusion not assessed — defaulting to non-ischaemic. Assess ABPI (Mölnlycke Step 3) to confirm.',
   );
-  return { tissueType: 'necrotic', notes };
+  return 'necrotic';
+}
+
+/**
+ * Apply the clinician's confirmed dominant tissue (segmentation spec §4.3).
+ *
+ * The percentages are a measurement; the dominant tissue is a judgement, and on
+ * this step a clinician has looked at the wound and made it. Their choice wins,
+ * and the note records whether it agreed with the measurement — that is the
+ * `tissue_override` signal the correction log tracks.
+ */
+export function applyTissueOverride(
+  measured: TissueType | null,
+  override: ClinicianTissueChoice,
+  perfusion: PerfusionStatus = 'unknown',
+): { tissueType: TissueType; changed: boolean; notes: string[] } {
+  const notes: string[] = [];
+  const tissueType = override === 'necrotic' ? splitNecrotic(perfusion, notes) : override;
+  const measuredBase = measured === 'necrotic_ischaemic' ? 'necrotic' : measured;
+  const changed = measuredBase !== override;
+  notes.unshift(
+    changed
+      ? `Dominant tissue changed by the clinician from ${measured ?? 'undetermined'} to ${tissueType}.`
+      : `Dominant tissue confirmed by the clinician (${tissueType}).`,
+  );
+  return { tissueType, changed, notes };
 }
 
 // ===========================================================================
@@ -292,14 +327,14 @@ export type InfectionReconciliation = {
 export function reconcileInfection(
   answered: Infection | undefined,
   vlm: VlmFeatures | undefined,
+  /** Clinician-found signs that are not in the image (e.g. induration), named for the notes. */
+  clinicalSigns: readonly string[] = [],
 ): InfectionReconciliation {
   const notes: string[] = [];
 
   const signs = vlm?.infectionSigns;
-  const present = signs ? CLASSIC_SIGNS.filter((k) => signs[k] === 'present') : [];
-  const anyPresent = signs
-    ? present.length > 0 || signs.friableGranulation === 'present'
-    : false;
+  const present: string[] = [...(signs ? CLASSIC_SIGNS.filter((k) => signs[k] === 'present') : []), ...clinicalSigns];
+  const anyPresent = present.length > 0 || signs?.friableGranulation === 'present';
   const purulent = signs?.purulent === 'present';
 
   if (answered === 'yes') {
@@ -309,23 +344,103 @@ export function reconcileInfection(
   if (purulent || present.length >= 2) {
     if (answered === 'no') {
       notes.push(
-        `Infection was reported as absent, but the image shows ${purulent ? 'purulent discharge' : present.length + ' infection signs'} — treated as possible infection.`,
+        `Infection was reported as absent, but ${purulent ? 'the image shows purulent discharge' : present.length + ' infection signs were found (' + present.join(', ') + ')'} — treated as possible infection.`,
       );
     } else {
-      notes.push(`Image shows ${purulent ? 'purulent discharge' : present.length + ' infection signs'} — treated as possible infection.`);
+      notes.push(
+        `${purulent ? 'Image shows purulent discharge' : present.length + ' infection signs found (' + present.join(', ') + ')'} — treated as possible infection.`,
+      );
     }
     return { infection: 'yes', notes };
   }
 
   if (answered === 'no') {
     if (anyPresent) {
-      notes.push('Infection reported as absent but the image shows a possible sign — confirm before proceeding.');
+      notes.push('Infection reported as absent but a possible sign was found — confirm before proceeding.');
       return { infection: null, notes };
     }
     return { infection: 'no', notes };
   }
 
   return { infection: null, notes };
+}
+
+// ===========================================================================
+// Clinician-only inputs (segmentation spec §4.4, §4.5)
+// ===========================================================================
+
+const NEUTRAL_VLM: VlmFeatures = {
+  infectionSigns: { erythema: 'uncertain', warmth: 'uncertain', purulent: 'uncertain', malodour: 'uncertain', friableGranulation: 'uncertain' },
+  edgeType: 'uncertain',
+  visualExudate: 'uncertain',
+  tissueCorroboration: 'uncertain',
+  imageFlags: [],
+};
+
+/** Monk Skin Tone at or above this: redness is hard to see, so "none seen" is not evidence. */
+export const DARK_SKIN_MONK_TONE = 7;
+
+/**
+ * Fold the clinician's hands-on findings into the image's observations, BEFORE
+ * the infection axis is reconciled. Two rules, both conservative:
+ *
+ *  1. Dark-skin rule: at Monk tone ≥ 7, an image reporting erythema `absent` is
+ *     treated as `uncertain`. Absence of visible redness on darker skin is not
+ *     evidence of no infection.
+ *  2. Palpated warmth OVERRIDES the image's warmth — a hand on the skin beats a
+ *     guess from pixels. warmer/hot → present; cooler/same → absent.
+ *
+ * Induration is returned as a clinician-found sign: it is counted alongside the
+ * image's signs by `reconcileInfection`.
+ */
+export function applyClinicalFindings(
+  vlm: VlmFeatures | undefined,
+  clinical: ClinicalInputs | undefined,
+): { vlm: VlmFeatures | undefined; clinicalSigns: string[]; notes: string[] } {
+  const notes: string[] = [];
+  const clinicalSigns: string[] = [];
+  if (!clinical) return { vlm, clinicalSigns, notes };
+
+  let out = vlm;
+  const tone = clinical.monkTone;
+  if (out && typeof tone === 'number' && tone >= DARK_SKIN_MONK_TONE && out.infectionSigns.erythema === 'absent') {
+    out = { ...out, infectionSigns: { ...out.infectionSigns, erythema: 'uncertain' } };
+    notes.push('On darker skin, no visible redness is not evidence of no infection — treated as uncertain.');
+  }
+
+  const palpated = clinical.palpatedWarmth;
+  if (palpated) {
+    const warmth = palpated === 'warmer' || palpated === 'hot' ? 'present' : 'absent';
+    out = { ...(out ?? NEUTRAL_VLM), infectionSigns: { ...(out ?? NEUTRAL_VLM).infectionSigns, warmth } };
+    notes.push(`Warmth by touch (${palpated}) used instead of the image's estimate.`);
+  }
+
+  if (clinical.induration === 'yes') {
+    clinicalSigns.push('induration');
+    notes.push('Induration found on examination — counted as an infection sign.');
+  }
+
+  return { vlm: out, clinicalSigns, notes };
+}
+
+/** Referrals from clinician-only inputs and the image's deep-structures finding. */
+export function clinicalFlags(clinical: ClinicalInputs | undefined, vlm: VlmFeatures | undefined): ReferralFlag[] {
+  const flags: ReferralFlag[] = [];
+  if (vlm?.deepStructuresVisible === 'present') {
+    flags.push({
+      urgency: 'urgent',
+      code: 'deep_structures_visible',
+      message: 'Bone, tendon or a deep cavity visible → urgent referral (probe-to-bone pathway; possible osteomyelitis).',
+    });
+  }
+  if (clinical?.underminingTunnelling === 'yes') {
+    flags.push({
+      urgency: 'mdt',
+      code: 'undermining_tunnelling',
+      message: `Undermining or tunnelling${typeof clinical.underminingClock === 'number' ? ` at ${clinical.underminingClock} o'clock` : ''} → consider multidisciplinary team review.`,
+    });
+  }
+  return flags;
 }
 
 // ===========================================================================
@@ -390,13 +505,22 @@ export function evaluate(inputs: EngineInputs): EngineResult {
   const gateCodes: string[] = [];
 
   // --- Tissue axis: HSI inside the wound mask is authoritative. ------------
-  const { tissueType, notes: tissueNotes } = reconcileTissue(
-    inputs.tissue,
-    inputs.perfusion ?? 'unknown',
-  );
+  const reconciled = reconcileTissue(inputs.tissue, inputs.perfusion ?? 'unknown');
+  let tissueType = reconciled.tissueType;
+  const tissueNotes = reconciled.notes;
   notes.push(...tissueNotes);
 
   const noClassReachedThreshold = tissueNotes.some((n) => n.startsWith('No tissue class'));
+
+  // A clinician-confirmed dominant tissue replaces the reconciled one. It also
+  // resolves the tissue_conflict gate below: that gate exists because two
+  // automated signals disagreed and nobody had looked — now somebody has.
+  const clinicianConfirmed = inputs.tissueOverride !== undefined;
+  if (inputs.tissueOverride) {
+    const override = applyTissueOverride(tissueType, inputs.tissueOverride, inputs.perfusion ?? 'unknown');
+    tissueType = override.tissueType;
+    notes.push(...override.notes);
+  }
 
   // The VLM may disagree with the measured tissue composition. It does NOT get
   // to change the class — it costs us confidence, and where the measurement was
@@ -405,7 +529,7 @@ export function evaluate(inputs: EngineInputs): EngineResult {
   if (inputs.vlm?.tissueCorroboration === 'disagrees') {
     tissueConflict = true;
     notes.push('The image review disagrees with the measured tissue composition — confidence reduced.');
-    if (noClassReachedThreshold) {
+    if (noClassReachedThreshold && !clinicianConfirmed) {
       gateCodes.push('tissue_conflict');
       incompleteReasons.push('The tissue in the wound bed could not be identified reliably.');
     }
@@ -416,7 +540,10 @@ export function evaluate(inputs: EngineInputs): EngineResult {
   notes.push(...exudateRecon.notes);
   const exudate = exudateRecon.exudate;
 
-  const infectionRecon = reconcileInfection(inputs.infection, inputs.vlm);
+  // Hands-on findings refine the image's infection signs before they count.
+  const clinicalView = applyClinicalFindings(inputs.vlm, inputs.clinical);
+  notes.push(...clinicalView.notes);
+  const infectionRecon = reconcileInfection(inputs.infection, clinicalView.vlm, clinicalView.clinicalSigns);
   notes.push(...infectionRecon.notes);
   const infection = infectionRecon.infection;
 
@@ -430,7 +557,17 @@ export function evaluate(inputs: EngineInputs): EngineResult {
     notes.push('The skin around the wound looks waterlogged — consider protecting the surrounding skin.');
   }
 
-  const referrals = molnlyckeFlags(inputs.molnlycke ?? {}, tissueType);
+  const referrals = [...molnlyckeFlags(inputs.molnlycke ?? {}, tissueType), ...clinicalFlags(inputs.clinical, inputs.vlm)].sort(
+    (a, b) => URGENCY_ORDER[a.urgency] - URGENCY_ORDER[b.urgency],
+  );
+  if (typeof inputs.clinical?.depthMm === 'number' && inputs.clinical.depthMm > 0) {
+    notes.push(
+      `Depth ${inputs.clinical.depthMm} mm recorded${inputs.vlm?.deepStructuresVisible === 'present' ? ' with a visible cavity — full-thickness wound' : ''}.`,
+    );
+  }
+  if (inputs.clinical?.oedema === 'yes') {
+    notes.push('Oedema recorded.');
+  }
 
   let cwcsPathwayId: number | null = null;
   let primary: string[] = [];

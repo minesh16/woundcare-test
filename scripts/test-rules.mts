@@ -6,6 +6,8 @@
  * and end-to-end engine behaviour incl. safety/confidence gates.
  */
 import {
+  applyClinicalFindings,
+  applyTissueOverride,
   CWCS_PATHWAYS,
   evaluate,
   lookupPathway,
@@ -271,6 +273,96 @@ for (const c of phase0Cases) {
       withoutVlm.status === withNeutralVlm.status,
   );
 }
+
+// --- Clinician tissue confirmation (segmentation spec §4.3) ---------------
+// The demo leg ulcer: 82% granulation, 17% slough. Precedence picks slough.
+const legUlcer = bed({ granulation: 82, slough: 17, epithelial: 1 });
+const auto = evaluate({ tissue: legUlcer, exudate: 'moderate', infection: 'yes', markerFound: true });
+check('override: without one, precedence picks slough (17% ≥ 10%)', auto.axes.tissue === 'slough');
+
+const confirmed = evaluate({ tissue: legUlcer, exudate: 'moderate', infection: 'yes', markerFound: true, tissueOverride: 'slough' });
+check(
+  'override: confirming the measured tissue changes nothing but the note',
+  confirmed.cwcsPathwayId === auto.cwcsPathwayId && confirmed.notes.some((n) => n.includes('confirmed by the clinician')),
+);
+
+const changed = evaluate({ tissue: legUlcer, exudate: 'moderate', infection: 'yes', markerFound: true, tissueOverride: 'granulating' });
+check(
+  'override: a changed tissue drives the pathway',
+  changed.axes.tissue === 'granulating' && changed.cwcsPathwayId === lookupPathway('granulating', 'moderate', 'yes')?.id,
+);
+check('override: a change is recorded as a change', changed.notes.some((n) => n.includes('changed by the clinician from slough to granulating')));
+
+const necroticIsch = evaluate({ tissue: legUlcer, exudate: 'low', infection: 'no', perfusion: 'ischaemic', tissueOverride: 'necrotic' });
+check('override: necrotic is still split by perfusion', necroticIsch.axes.tissue === 'necrotic_ischaemic');
+check(
+  'override: necrotic ischaemic → measured necrotic_ischaemic counts as confirmed',
+  applyTissueOverride('necrotic_ischaemic', 'necrotic', 'ischaemic').changed === false,
+);
+
+// The black-necrotic MDT trigger keys off the final tissue type, so a clinician
+// who identifies necrosis must get the referral the measurement missed.
+const necroticReferral = evaluate({ tissue: legUlcer, exudate: 'low', infection: 'no', perfusion: 'non_ischaemic', tissueOverride: 'necrotic' });
+const necroticMeasured = evaluate({ tissue: bed({ necrosis: 60 }), exudate: 'low', infection: 'no', perfusion: 'non_ischaemic' });
+check(
+  'override: referrals follow the confirmed tissue',
+  JSON.stringify(necroticReferral.referrals.map((r) => r.code)) === JSON.stringify(necroticMeasured.referrals.map((r) => r.code)),
+);
+
+// A weak measurement plus a disagreeing image review withholds the pathway —
+// until a clinician has looked and decided.
+const weakBed = bed({ granulation: 6, slough: 4 });
+const conflictInputs = { tissue: weakBed, exudate: 'low' as const, infection: 'no' as const, markerFound: true, vlm: vlm({ tissueCorroboration: 'disagrees' }) };
+check('override: unresolved tissue conflict still withholds', evaluate(conflictInputs).gateCodes.includes('tissue_conflict'));
+check(
+  'override: a clinician confirmation resolves the tissue conflict gate',
+  !evaluate({ ...conflictInputs, tissueOverride: 'granulating' }).gateCodes.includes('tissue_conflict'),
+);
+check('rules version records the latest rule set', auto.rulesVersion.endsWith('recon.3'));
+
+// --- Clinician-only inputs + deep structures (segmentation spec §4.4–4.5) --
+const granBed = bed({ granulation: 80 });
+const signsOf = (e: string, w: string) => vlm({ infectionSigns: { erythema: e, warmth: w, purulent: 'absent', malodour: 'absent', friableGranulation: 'absent' } as never });
+
+// Dark-skin rule.
+const dark = applyClinicalFindings(signsOf('absent', 'absent'), { monkTone: 8 });
+check('dark skin: "no redness seen" becomes uncertain at Monk 8', dark.vlm?.infectionSigns.erythema === 'uncertain');
+check('dark skin: the rule says why', dark.notes.some((n) => n.includes('darker skin')));
+check('dark skin: Monk 6 is unchanged', applyClinicalFindings(signsOf('absent', 'absent'), { monkTone: 6 }).vlm?.infectionSigns.erythema === 'absent');
+check('dark skin: "redness present" is never downgraded', applyClinicalFindings(signsOf('present', 'absent'), { monkTone: 9 }).vlm?.infectionSigns.erythema === 'present');
+const darkNo = evaluate({ tissue: granBed, exudate: 'low', infection: 'no', markerFound: true, vlm: signsOf('absent', 'absent'), clinical: { monkTone: 8 } });
+const lightNo = evaluate({ tissue: granBed, exudate: 'low', infection: 'no', markerFound: true, vlm: signsOf('absent', 'absent'), clinical: { monkTone: 3 } });
+check('dark skin: the infection axis still resolves from the clinician answer', darkNo.axes.infection === 'no' && lightNo.axes.infection === 'no');
+
+// Palpated warmth overrides the image.
+check('palpation: hot overrides an image that saw no warmth', applyClinicalFindings(signsOf('absent', 'absent'), { palpatedWarmth: 'hot' }).vlm?.infectionSigns.warmth === 'present');
+check('palpation: same-as-other-side overrides an image that saw warmth', applyClinicalFindings(signsOf('absent', 'present'), { palpatedWarmth: 'same' }).vlm?.infectionSigns.warmth === 'absent');
+const warmPlusRed = evaluate({ tissue: granBed, exudate: 'low', markerFound: true, vlm: signsOf('present', 'absent'), clinical: { palpatedWarmth: 'warmer' } });
+check('palpation: warmer + visible redness = two signs → infection yes', warmPlusRed.axes.infection === 'yes');
+const imageWarmOnly = evaluate({ tissue: granBed, exudate: 'low', markerFound: true, vlm: signsOf('present', 'present'), clinical: { palpatedWarmth: 'cooler' } });
+check('palpation: a cool limb removes the image-only warmth sign (1 sign → unresolved)', imageWarmOnly.axes.infection === null);
+check('palpation works with no image review at all', applyClinicalFindings(undefined, { palpatedWarmth: 'hot' }).vlm?.infectionSigns.warmth === 'present');
+
+// Induration counts as a sign.
+const indurated = evaluate({ tissue: granBed, exudate: 'low', markerFound: true, vlm: signsOf('present', 'absent'), clinical: { induration: 'yes' } });
+check('induration: + visible redness = two signs → infection yes', indurated.axes.infection === 'yes' && indurated.notes.some((n) => n.includes('induration')));
+const answeredNo = evaluate({ tissue: granBed, exudate: 'low', infection: 'no', markerFound: true, clinical: { induration: 'yes' } });
+check('induration: an "no infection" answer plus induration needs confirming', answeredNo.axes.infection === null);
+
+// Referrals.
+const undermined = evaluate({ tissue: granBed, exudate: 'low', infection: 'no', markerFound: true, clinical: { underminingTunnelling: 'yes', underminingClock: 3 } });
+const underminedFlag = undermined.referrals.find((r) => r.code === 'undermining_tunnelling');
+check('undermining: yes → MDT referral, with the clock position', underminedFlag?.urgency === 'mdt' && underminedFlag.message.includes("3 o'clock"));
+check('undermining: unsure raises nothing', !evaluate({ tissue: granBed, exudate: 'low', infection: 'no', clinical: { underminingTunnelling: 'unsure' } }).referrals.some((r) => r.code === 'undermining_tunnelling'));
+const deep = evaluate({ tissue: granBed, exudate: 'low', infection: 'no', markerFound: true, vlm: vlm({ deepStructuresVisible: 'present' }), clinical: { depthMm: 12 } });
+check('deep structures: visible → urgent referral, first in the list', deep.referrals[0]?.code === 'deep_structures_visible' && deep.referrals[0].urgency === 'urgent');
+check('deep structures: depth + cavity notes a full-thickness wound', deep.notes.some((n) => n.includes('full-thickness')));
+check('deep structures: uncertain raises nothing', !evaluate({ tissue: granBed, exudate: 'low', infection: 'no', vlm: vlm({ deepStructuresVisible: 'uncertain' }) }).referrals.length);
+
+// Regression: no clinical inputs → identical result.
+const plain = evaluate({ tissue: granBed, exudate: 'moderate', infection: 'yes', markerFound: true, vlm: vlm() });
+const emptyClinical = evaluate({ tissue: granBed, exudate: 'moderate', infection: 'yes', markerFound: true, vlm: vlm(), clinical: {} });
+check('regression: empty clinical inputs change nothing', JSON.stringify(plain) === JSON.stringify(emptyClinical));
 
 // --- Summary ---------------------------------------------------------------
 console.log(`\n${passed} passed, ${failed} failed (of ${passed + failed}).`);

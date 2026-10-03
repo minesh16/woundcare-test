@@ -70,6 +70,10 @@ const ALL_PROVIDERS: readonly string[] = ['sam3', 'fusegnet'];
  */
 export function parseProviderOrder(raw: string | undefined | null): SegmentationProvider[] {
   if (!raw) return [...DEFAULT_PROVIDER_ORDER];
+  // The segmentation spec's `SEGMENT_PROVIDER` names: `fal-sam3` is this
+  // default chain. `replicate-sam2` named the removed SAM 2 provider; it is
+  // dropped like any unknown name, so it falls back to the default.
+  if (raw.trim().toLowerCase() === 'fal-sam3') return [...DEFAULT_PROVIDER_ORDER];
   const seen = new Set<string>();
   const order: SegmentationProvider[] = [];
   for (const part of raw.split(',')) {
@@ -481,13 +485,29 @@ export type FusegnetParsed = {
    * acting on it is the engine's business and needs clinical grounding first.
    */
   multipleRegions: boolean | null;
+  /** `regions.regions_kept` — 0 means the model kept nothing inside the box. */
+  regionsKept: number | null;
+  /** The endpoint's region report as-is (numbers and booleans only), for the correction log. */
+  regions: Record<string, number | boolean> | null;
+  /** The endpoint's own `latency_ms`. */
+  latencyMs: number | null;
   /** Top-level keys of the response — surfaced so a contract mismatch is legible. */
   keys: string[];
 };
 
 export function parseFusegnetResponse(json: unknown, maskField?: string | null): FusegnetParsed {
   if (!json || typeof json !== 'object') {
-    return { mask: null, score: null, areaPx: null, model: null, multipleRegions: null, keys: [] };
+    return {
+      mask: null,
+      score: null,
+      areaPx: null,
+      model: null,
+      multipleRegions: null,
+      regionsKept: null,
+      regions: null,
+      latencyMs: null,
+      keys: [],
+    };
   }
   const body = json as Record<string, unknown>;
   const keys = Object.keys(body);
@@ -516,12 +536,24 @@ export function parseFusegnetResponse(json: unknown, maskField?: string | null):
       ? ((regions as Record<string, unknown>).multiple_regions as boolean)
       : null;
 
+  let regionReport: Record<string, number | boolean> | null = null;
+  if (regions && typeof regions === 'object') {
+    regionReport = {};
+    for (const [k, v] of Object.entries(regions as Record<string, unknown>)) {
+      if (typeof v === 'number' || typeof v === 'boolean') regionReport[k] = v;
+    }
+  }
+  const kept = regionReport?.regions_kept;
+
   return {
     mask,
     score: firstNumber(body, FUSEGNET_SCORE_KEYS),
     areaPx: firstNumber(body, FUSEGNET_AREA_KEYS),
     model: typeof body.model === 'string' && body.model ? body.model : null,
     multipleRegions,
+    regionsKept: typeof kept === 'number' ? kept : null,
+    regions: regionReport,
+    latencyMs: firstNumber(body, ['latency_ms']),
     keys,
   };
 }
@@ -540,25 +572,92 @@ export const SAM3_FAL_MODEL_DEFAULT = 'fal-ai/sam-3/image';
  */
 export const SAM3_PROMPT_DEFAULT = 'wound';
 
+/** A clinician's tap: include (1) or exclude (0) this point, fractional coordinates. */
+export type PromptPoint = { xPct: number; yPct: number; label: 0 | 1 };
+
+/** A clinician's box around the wound, fractional coordinates. */
+export type PromptBox = { x0Pct: number; y0Pct: number; x1Pct: number; y1Pct: number };
+
+/** Everything the review screen can say to SAM 3 (segmentation spec §3.2). */
+export type SegmentPrompts = {
+  text?: string;
+  points?: PromptPoint[];
+  box?: PromptBox | null;
+};
+
+/** At most this many taps go to the model — more is noise, and a bounded request. */
+export const MAX_PROMPT_POINTS = 24;
+
+/** SAM 3 returns up to this many candidate masks (spec §3.1). */
+export const SAM3_MAX_MASKS_DEFAULT = 3;
+
 /**
- * Build the fal input. Verified against the published `fal-ai/sam-3/image`
- * schema (Sam3ImageInput): image_url, prompt, point_prompts[{x,y,label,object_id}],
- * box_prompts, apply_mask, sync_mode, output_format, return_multiple_masks,
- * max_masks, include_scores, include_boxes.
+ * Validate caller-supplied prompts. Anything malformed is dropped rather than
+ * sent: a NaN or an out-of-frame tap would point the model somewhere the
+ * clinician did not touch. Coordinates are clamped into the frame.
+ */
+export function sanitisePrompts(raw: unknown): SegmentPrompts {
+  const clamp = (n: number) => Math.min(1, Math.max(0, n));
+  const isNum = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
+  const out: SegmentPrompts = {};
+  if (!raw || typeof raw !== 'object') return out;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.text === 'string' && r.text.trim()) out.text = r.text.trim().slice(0, 60);
+  if (Array.isArray(r.points)) {
+    const points: PromptPoint[] = [];
+    for (const p of r.points.slice(0, MAX_PROMPT_POINTS)) {
+      if (!p || typeof p !== 'object') continue;
+      const { xPct, yPct, label } = p as Record<string, unknown>;
+      if (!isNum(xPct) || !isNum(yPct) || (label !== 0 && label !== 1)) continue;
+      points.push({ xPct: clamp(xPct), yPct: clamp(yPct), label });
+    }
+    if (points.length) out.points = points;
+  }
+  if (r.box && typeof r.box === 'object') {
+    const { x0Pct, y0Pct, x1Pct, y1Pct } = r.box as Record<string, unknown>;
+    if ([x0Pct, y0Pct, x1Pct, y1Pct].every(isNum)) {
+      const box = {
+        x0Pct: clamp(Math.min(x0Pct as number, x1Pct as number)),
+        y0Pct: clamp(Math.min(y0Pct as number, y1Pct as number)),
+        x1Pct: clamp(Math.max(x0Pct as number, x1Pct as number)),
+        y1Pct: clamp(Math.max(y0Pct as number, y1Pct as number)),
+      };
+      // A box with no area is a tap, not a box.
+      if (box.x1Pct - box.x0Pct > 0.005 && box.y1Pct - box.y0Pct > 0.005) out.box = box;
+    }
+  }
+  return out;
+}
+
+/**
+ * Build the fal input (segmentation spec §3.1). Verified against the published
+ * `fal-ai/sam-3/image` schema (Sam3ImageInput): image_url, prompt,
+ * point_prompts[{x,y,label,object_id}], box_prompts[{x_min,y_min,x_max,y_max,object_id}],
+ * apply_mask, sync_mode, output_format, return_multiple_masks, max_masks,
+ * include_scores, include_boxes.
  *
- * `apply_mask: false` matters: with it true, fal composites the mask onto the
- * photograph, and a composited photo fed to the HSI tissue classifier would be
- * measured as if it were tissue. We want the raw binary masks.
+ *  - `apply_mask: false`: with it true, fal composites the mask onto the photo,
+ *    and the HSI classifier would measure a composited photo as tissue.
+ *  - Every prompt shares `object_id: 1` so the taps and the box refine ONE
+ *    object, rather than asking for several.
+ *  - `sync_mode: true` returns masks inline as data URIs instead of as files on
+ *    fal's public CDN — a wound mask should not sit at a guessable public URL.
+ *  - Points and boxes are PIXELS; ours are fractional, so they are only sent
+ *    when the image's real dimensions are known. A fraction sent as a pixel
+ *    lands in the top-left corner and still returns a confident mask.
  */
 export function buildSam3Input(args: {
   imageDataUrl: string;
   prompt?: string;
-  point?: ImagePoint | null;
+  points?: PromptPoint[] | null;
+  box?: PromptBox | null;
   size?: ImageSize | null;
   maxMasks?: number;
   syncMode?: boolean;
 }): Record<string, unknown> {
-  const maxMasks = Number.isFinite(args.maxMasks) ? Math.min(32, Math.max(1, Number(args.maxMasks))) : 4;
+  const maxMasks = Number.isFinite(args.maxMasks)
+    ? Math.min(32, Math.max(1, Number(args.maxMasks)))
+    : SAM3_MAX_MASKS_DEFAULT;
   const input: Record<string, unknown> = {
     // fal accepts a data uri anywhere it accepts a file url, so the image never
     // has to be uploaded to a third-party bucket first.
@@ -569,15 +668,24 @@ export function buildSam3Input(args: {
     return_multiple_masks: true,
     max_masks: maxMasks,
     include_scores: true,
-    sync_mode: Boolean(args.syncMode),
+    include_boxes: true,
+    sync_mode: args.syncMode ?? true,
   };
 
-  // The point prompt is additive: it only goes in when we know the pixel
-  // dimensions, because `point_prompts` are pixel coordinates and a fractional
-  // value sent as one would land in the top-left corner of the image.
-  if (args.point && args.size) {
-    const { x, y } = pointToPixels(args.point, args.size);
-    input.point_prompts = [{ x, y, label: 1 }];
+  if (args.size) {
+    const size = args.size;
+    if (args.points?.length) {
+      input.point_prompts = args.points.map((p) => ({
+        ...pointToPixels(p, size),
+        label: p.label,
+        object_id: 1,
+      }));
+    }
+    if (args.box) {
+      const a = pointToPixels({ xPct: args.box.x0Pct, yPct: args.box.y0Pct }, size);
+      const b = pointToPixels({ xPct: args.box.x1Pct, yPct: args.box.y1Pct }, size);
+      input.box_prompts = [{ x_min: a.x, y_min: a.y, x_max: b.x, y_max: b.y, object_id: 1 }];
+    }
   }
 
   return input;
@@ -587,11 +695,19 @@ export type Sam3Parsed = {
   masks: string[];
   /** Per-mask confidence, aligned with `masks`, or null when fal didn't return any. */
   scores: number[] | null;
+  /** Per-mask boxes, normalised [cx, cy, w, h], aligned with `masks`, or null. */
+  boxes: [number, number, number, number][] | null;
   keys: string[];
 };
 
+function asBox(value: unknown): [number, number, number, number] | null {
+  if (!Array.isArray(value) || value.length !== 4) return null;
+  if (!value.every((n) => typeof n === 'number' && Number.isFinite(n))) return null;
+  return value as [number, number, number, number];
+}
+
 export function parseSam3Response(json: unknown): Sam3Parsed {
-  if (!json || typeof json !== 'object') return { masks: [], scores: null, keys: [] };
+  if (!json || typeof json !== 'object') return { masks: [], scores: null, boxes: null, keys: [] };
   const body = json as Record<string, unknown>;
   const keys = Object.keys(body);
 
@@ -611,37 +727,51 @@ export function parseSam3Response(json: unknown): Sam3Parsed {
   // are how a mask gets chosen. Dropping a null mid-array would shift every
   // later score onto the wrong mask and quietly pick the wrong boundary, so a
   // ragged or short array is discarded entirely rather than partially trusted.
+  const metadata = Array.isArray(body.metadata) ? body.metadata : null;
   const raws = Array.isArray(body.scores)
     ? body.scores
-    : Array.isArray(body.metadata)
+    : metadata
       ? // `metadata` is the per-mask carrier when include_boxes is also set.
-        body.metadata.map((m) =>
+        metadata.map((m) =>
           m && typeof m === 'object' ? firstNumber(m as Record<string, unknown>, ['score']) : null,
         )
       : [];
   const aligned = raws.filter((s): s is number => typeof s === 'number' && Number.isFinite(s));
   const scores = aligned.length > 0 && aligned.length === masks.length ? aligned : null;
 
-  return { masks, scores, keys };
+  // Boxes, under the same index-for-index rule.
+  const rawBoxes = Array.isArray(body.boxes)
+    ? body.boxes.map(asBox)
+    : metadata
+      ? metadata.map((m) => (m && typeof m === 'object' ? asBox((m as Record<string, unknown>).box) : null))
+      : [];
+  const boxes =
+    rawBoxes.length === masks.length && rawBoxes.length > 0 && rawBoxes.every((b) => b !== null)
+      ? (rawBoxes as [number, number, number, number][])
+      : null;
+
+  return { masks, scores, boxes, keys };
 }
 
-export const SAM3_DEFAULT_TIMEOUT_MS = 60_000;
+/** 25 s: the clinician is waiting on the review screen (spec §3.1). */
+export const SAM3_DEFAULT_TIMEOUT_MS = 25_000;
 export const SAM3_FAL_BASE = 'https://fal.run';
 
 /**
  * The exact request sent to fal, assembled in one place for the adapter and the
  * probe script alike. Returns null when FAL_KEY is unset.
  *
- * `imageBytes` is optional: it is only used to read the pixel dimensions needed
- * to place a point prompt. Without it, the concept prompt goes alone.
+ * `imageBytes` is only used to read the pixel dimensions that points and boxes
+ * need. Without it, the concept prompt goes alone.
  */
 export function sam3Request(
   env: Record<string, string | undefined>,
-  args: { imageDataUrl: string; point?: ImagePoint | null; imageBytes?: Uint8Array | null },
+  args: { imageDataUrl: string; prompts?: SegmentPrompts | null; imageBytes?: Uint8Array | null },
 ): BackendRequest | null {
   if (!env.FAL_KEY) return null;
   const model = env.SAM3_FAL_MODEL ?? SAM3_FAL_MODEL_DEFAULT;
   const size = args.imageBytes ? imageSize(args.imageBytes) : null;
+  const prompts = args.prompts ?? {};
   return {
     url: `${SAM3_FAL_BASE}/${model}`,
     method: 'POST',
@@ -653,15 +783,128 @@ export function sam3Request(
     body: JSON.stringify(
       buildSam3Input({
         imageDataUrl: args.imageDataUrl,
-        prompt: env.SAM3_PROMPT,
-        point: args.point ?? null,
+        prompt: prompts.text ?? env.SAM3_TEXT_PROMPT ?? env.SAM3_PROMPT,
+        points: prompts.points ?? null,
+        box: prompts.box ?? null,
         size,
-        maxMasks: Number(env.SAM3_MAX_MASKS ?? 4),
-        syncMode: env.SAM3_SYNC_MODE === 'true',
+        maxMasks: env.SAM3_MAX_MASKS ? Number(env.SAM3_MAX_MASKS) : SAM3_MAX_MASKS_DEFAULT,
+        // On unless explicitly turned off: see `buildSam3Input`.
+        syncMode: env.SAM3_SYNC_MODE !== 'false',
       }),
     ),
     timeoutMs: positiveNumber(env.SAM3_TIMEOUT_MS, SAM3_DEFAULT_TIMEOUT_MS),
   };
+}
+
+/**
+ * Pick one of several SAM 3 masks (segmentation spec §3.1):
+ *   1. drop masks that leave out any positive point or include any negative one;
+ *   2. of the rest, take the highest score;
+ *   3. if none survive, take the highest score overall and report a conflict.
+ *
+ * `pointHits[i][j]` is whether mask i contains prompt point j. Replaces the old
+ * "smallest mask under the HSV centroid" heuristic, which picked the wrong
+ * region whenever the colour centroid was wrong.
+ */
+export function selectByPrompts(
+  masks: { score: number | null; pointHits: boolean[] }[],
+  labels: readonly (0 | 1)[],
+): { index: number; conflict: boolean } | null {
+  if (masks.length === 0) return null;
+  const rank = (candidates: number[]) =>
+    candidates.reduce((best, i) => ((masks[i].score ?? -1) > (masks[best].score ?? -1) ? i : best), candidates[0]);
+  const all = masks.map((_, i) => i);
+  const consistent = all.filter((i) =>
+    labels.every((label, j) => (label === 1 ? masks[i].pointHits[j] === true : masks[i].pointHits[j] !== true)),
+  );
+  if (consistent.length > 0) return { index: rank(consistent), conflict: false };
+  return { index: rank(all), conflict: labels.length > 0 };
+}
+
+// ---------------------------------------------------------------------------
+// FUSegNet as a second opinion (segmentation spec §6.4)
+// ---------------------------------------------------------------------------
+
+/** Body zones that count as "foot" for `FUSEGNET_TRIGGER=foot`. */
+export const FOOT_ZONES: readonly string[] = [
+  'foot_left',
+  'foot_right',
+  'toes_left',
+  'toes_right',
+  'heel_left',
+  'heel_right',
+];
+
+/**
+ * Should FUSegNet give a second opinion on this wound? `foot` (default): only
+ * for foot-region wounds, which is what it was trained on. `all`: always.
+ * Anything else: never.
+ */
+export function shouldRunSecondOpinion(trigger: string | undefined, bodyZone: string | null | undefined): boolean {
+  const mode = (trigger ?? 'foot').trim().toLowerCase();
+  if (mode === 'all') return true;
+  if (mode === 'foot') return typeof bodyZone === 'string' && FOOT_ZONES.includes(bodyZone);
+  return false;
+}
+
+/**
+ * SAM 3's normalised [cx, cy, w, h] → integer pixel [x0, y0, x1, y1], clamped
+ * inside the frame, for FUSegNet's `box`. Null for a box with no area.
+ */
+export function cxcywhToPixelBox(
+  box: readonly number[],
+  size: ImageSize,
+): [number, number, number, number] | null {
+  if (box.length !== 4 || !box.every((n) => Number.isFinite(n))) return null;
+  const [cx, cy, w, h] = box;
+  const clampX = (v: number) => Math.min(size.width - 1, Math.max(0, Math.round(v)));
+  const clampY = (v: number) => Math.min(size.height - 1, Math.max(0, Math.round(v)));
+  const x0 = clampX((cx - w / 2) * size.width);
+  const y0 = clampY((cy - h / 2) * size.height);
+  const x1 = clampX((cx + w / 2) * size.width);
+  const y1 = clampY((cy + h / 2) * size.height);
+  return x1 > x0 && y1 > y0 ? [x0, y0, x1, y1] : null;
+}
+
+/** Normalised [cx, cy, w, h] of a mask's set pixels, or null when it is empty. */
+export function maskBoxCxcywh(
+  data: ArrayLike<number>,
+  width: number,
+  height: number,
+): [number, number, number, number] | null {
+  let x0 = width;
+  let y0 = height;
+  let x1 = -1;
+  let y1 = -1;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      if (!data[y * width + x]) continue;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+    }
+  }
+  if (x1 < 0) return null;
+  const w = (x1 - x0 + 1) / width;
+  const h = (y1 - y0 + 1) / height;
+  return [x0 / width + w / 2, y0 / height + h / 2, w, h];
+}
+
+/**
+ * Confidence from SAM 3 / FUSegNet agreement (spec §6.4):
+ *   IoU ≥ 0.80 → high; 0.50–0.80 → medium (show both outlines);
+ *   < 0.50, several regions, or FUSegNet kept nothing → low (ask for a tap).
+ */
+export function agreementConfidence(args: {
+  iou: number | null;
+  multipleRegions: boolean | null;
+  regionsKept: number | null;
+}): MaskConfidence {
+  if (args.iou === null || args.multipleRegions === true || args.regionsKept === 0) return 'low';
+  if (args.iou >= 0.8) return 'high';
+  if (args.iou >= 0.5) return 'medium';
+  return 'low';
 }
 
 /** Index of the highest score, or null when there is nothing to rank. */
@@ -675,14 +918,18 @@ export function highestScoreIndex(scores: number[] | null | undefined): number |
 }
 
 /**
- * Score → confidence band. Deliberately coarse: the engine only consumes three
- * bands, and a model's scalar score is not calibrated to anything clinical.
- * A missing score is `medium`, never `high` — absence of evidence is not
- * evidence of a good boundary.
+ * Score → confidence band (segmentation build spec §3.1): ≥ 0.80 high,
+ * ≥ 0.50 medium, otherwise low. Deliberately coarse: a model's scalar score is
+ * not calibrated to anything clinical, and these cut-offs are placeholders until
+ * the evaluation harness calibrates them. (The old single threshold of 0.5 called
+ * a 0.68 SAM 3 boundary "high".) A missing score is `medium`, never `high` —
+ * absence of evidence is not evidence of a good boundary.
  */
-export const SCORE_HIGH_THRESHOLD = 0.5;
+export const SCORE_HIGH_THRESHOLD = 0.8;
+export const SCORE_MEDIUM_THRESHOLD = 0.5;
 
 export function confidenceFromScore(score: number | null | undefined): MaskConfidence {
   if (typeof score !== 'number' || !Number.isFinite(score)) return 'medium';
-  return score >= SCORE_HIGH_THRESHOLD ? 'high' : 'medium';
+  if (score >= SCORE_HIGH_THRESHOLD) return 'high';
+  return score >= SCORE_MEDIUM_THRESHOLD ? 'medium' : 'low';
 }

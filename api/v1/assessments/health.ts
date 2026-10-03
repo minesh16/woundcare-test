@@ -1,5 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
+import { CWCS_RULES_VERSION } from '../../../src/decision/engine';
+import { API_VERSION, REGULATORY_STATUS } from '../../_apiCore';
 import { providerStatus } from '../../_segmentation';
 import { isGatewayConfigured, resolveModelCandidates } from './_gateway';
 import { isStoreConfigured } from './_store';
@@ -45,6 +47,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     MODAL_KEY: Boolean(process.env.MODAL_KEY),
     MODAL_SECRET: Boolean(process.env.MODAL_SECRET),
     FUSEGNET_AUTH_TOKEN: Boolean(process.env.FUSEGNET_AUTH_TOKEN),
+    MENDWISE_APP_KEY: Boolean(process.env.MENDWISE_APP_KEY),
   };
 
   let vlmCandidates: string[] = [];
@@ -71,6 +74,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       active: providers.find((p) => p.configured)?.provider ?? null,
     },
     models: { vlm: vlmCandidates, llm: llmCandidates },
+    /** The module API (spec §6A). */
+    api: {
+      version: API_VERSION,
+      engine_version: CWCS_RULES_VERSION,
+      regulatory_status: REGULATORY_STATUS,
+      // Keys, approvals and rate limits live in Supabase; without it they fall
+      // back to per-instance memory, which is not a shared limit or durable.
+      durable_state: store,
+      app_key_configured: Boolean(process.env.MENDWISE_APP_KEY),
+      second_opinion_trigger: process.env.FUSEGNET_TRIGGER ?? 'foot',
+      tissue_classifier: process.env.TISSUE_RELATIVE === '1' ? 'relative' : 'absolute',
+      openapi: '/api/v1/openapi',
+    },
     engine: 'always available — the deterministic decision never depends on any of the above',
   });
 }

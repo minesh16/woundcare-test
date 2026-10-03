@@ -59,7 +59,12 @@ export function ResultPanel({ result }: ResultPanelProps) {
       {/* 2. What we saw -------------------------------------------------- */}
       <View style={styles.card}>
         <Text style={styles.label}>What we saw</Text>
-        {tissue ? <Text style={styles.body}>• The wound bed is mostly {TISSUE_PLAIN[tissue]}.</Text> : null}
+        {/* Not "mostly": the guide follows the most serious tissue present (any
+            slough over 10% counts as slough), so an 82%-granulation wound can be
+            on the slough pathway. Saying "mostly slough" there would be false. */}
+        {tissue ? (
+          <Text style={styles.body}>• For choosing a dressing, the wound counts as having {TISSUE_PLAIN[tissue]}.</Text>
+        ) : null}
         {result.exudateLevel ? (
           <Text style={styles.body}>
             • There is {EXUDATE_PLAIN[result.exudateLevel as ExudateLevel]} coming from the wound.

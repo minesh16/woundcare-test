@@ -1,8 +1,11 @@
 import { generateObject } from 'ai';
-import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 import { VLM_SYSTEM_PROMPT, vlmFeaturesSchema } from '../../../src/decision/vlm.schema';
 import type { VlmFeatures } from '../../../src/decision/engine.types';
+import { vlmInput } from '../../_contracts';
+import { cropsFromMask } from '../../_crops';
+import { endpoint } from '../../_http';
+import { loadMaskPixels } from '../../_maskIO';
 import { callGateway } from './_gateway';
 
 /**
@@ -94,16 +97,32 @@ export async function extractVlmFeatures(body: VlmRequest): Promise<VlmResponse>
   };
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
-  if (req.method !== 'POST') {
-    res.status(405).json({ error: 'Method not allowed' });
-    return;
-  }
-
-  const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body ?? {};
-  try {
-    res.status(200).json(await extractVlmFeatures(body));
-  } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : 'VLM request failed.' });
-  }
-}
+/**
+ * POST /api/v1/assessments/vlm-features — the caged visual-signs pass over the
+ * photo plus wound-bed and periwound crops cut from the APPROVED mask
+ * (segmentation spec §4.2). Requires an approval (403 otherwise).
+ */
+export default endpoint({
+  name: 'vlm-features',
+  scope: 'vlm',
+  input: vlmInput,
+  requiresApproval: true,
+  heavy: true,
+  handle: async (input) => {
+    const mask = await loadMaskPixels(input.mask);
+    const crops = mask ? cropsFromMask(input.base64, mask) : null;
+    const result = await extractVlmFeatures({
+      base64: input.base64,
+      woundCrop: crops?.wound ?? null,
+      periwoundCrop: crops?.periwound ?? null,
+      tissueSummary: input.tissue_summary,
+    });
+    return {
+      body: result,
+      degraded: result.source !== 'gateway',
+      reason: result.source !== 'gateway' ? 'Image review unavailable — the engine runs without it.' : undefined,
+      models: { vlm: result.model ?? null },
+      outcome: { source: result.source, crops: Boolean(crops) },
+    };
+  },
+});

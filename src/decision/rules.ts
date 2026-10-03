@@ -5,9 +5,10 @@ import {
   UrgencyLevel,
 } from '@/decision/types';
 
+import { measuredView } from '@/assessment/measured';
 import { BODY_ZONE_LABELS } from '@/constants/bodyZones';
 import { evaluate } from './engine';
-import type { EngineInputs, PerfusionStatus } from './engine.types';
+import type { EngineInputs, EngineResult, PerfusionStatus } from './engine.types';
 import type { AbpiBand, PerfusionAnswer } from '@/decision/types';
 
 /** Map the perfusion questionnaire answer to the engine's perfusion status. */
@@ -44,14 +45,17 @@ function toAbpiValue(band: AbpiBand | null): number | undefined {
  * (perfusion/ABPI, explicit infection, epithelial tissue, etc.).
  */
 export function toEngineInputs(session: ScanSession): EngineInputs {
-  const { cv, answers } = session;
+  const { answers } = session;
+  // The approved outline's measurement when there is one; HSV only in the
+  // legacy flow. See `measuredView` for why this must be a single source.
+  const measured = measuredView(session);
 
   const tissue = {
-    necrosis: cv?.necrosisPercent ?? 0,
-    slough: cv?.sloughPercent ?? 0,
-    granulation: cv?.granulationPercent ?? 0,
-    epithelial: cv?.epithelialPercent ?? 0,
-    other: cv?.otherPercent ?? 0,
+    necrosis: measured?.necrosisPercent ?? 0,
+    slough: measured?.sloughPercent ?? 0,
+    granulation: measured?.granulationPercent ?? 0,
+    epithelial: measured?.epithelialPercent ?? 0,
+    other: measured?.otherPercent ?? 0,
   };
 
   const exudate =
@@ -83,11 +87,12 @@ export function toEngineInputs(session: ScanSession): EngineInputs {
     perfusion: toPerfusionStatus(answers.perfusion),
     exudate,
     infection,
-    cvConfidence: cv?.confidence,
-    markerFound: cv?.coinDetected,
-    periwound: cv?.periwound
-      ? { rednessPct: cv.periwound.rednessPct, maceration: cv.periwound.maceration }
-      : undefined,
+    cvConfidence: measured?.confidence,
+    markerFound: measured ? measured.markerFound : undefined,
+    periwound: measured?.periwound ?? undefined,
+    // The clinician's confirmed dominant tissue (spec §4.3), when given.
+    tissueOverride: session.tissueConfirmation?.final,
+    clinical: toClinicalInputs(answers),
     molnlycke: {
       diabetes: answers.diabetes === 'yes',
       abpi,
@@ -96,8 +101,22 @@ export function toEngineInputs(session: ScanSession): EngineInputs {
   };
 }
 
+/** Clinician-only answers (spec §4.4) → engine inputs. Unanswered fields are left out. */
+function toClinicalInputs(answers: ScanSession['answers']): EngineInputs['clinical'] {
+  const clinical: NonNullable<EngineInputs['clinical']> = {};
+  if (answers.palpatedWarmth) clinical.palpatedWarmth = answers.palpatedWarmth;
+  if (answers.induration) clinical.induration = answers.induration;
+  if (answers.oedema) clinical.oedema = answers.oedema;
+  if (answers.underminingTunnelling) clinical.underminingTunnelling = answers.underminingTunnelling;
+  if (answers.underminingClock != null) clinical.underminingClock = answers.underminingClock;
+  if (answers.depthMm != null) clinical.depthMm = answers.depthMm;
+  if (answers.monkTone != null) clinical.monkTone = answers.monkTone;
+  return Object.keys(clinical).length > 0 ? clinical : undefined;
+}
+
 function classifyWound(session: ScanSession): Classification {
-  const { answers, cv } = session;
+  const { answers } = session;
+  const cv = measuredView(session);
 
   if (answers.durationOver30Days === 'yes') {
     return 'likely_chronic';
@@ -156,7 +175,8 @@ function dressingCategory(session: ScanSession, urgency: UrgencyLevel): string {
 
 function buildRationale(session: ScanSession, classification: Classification, urgency: UrgencyLevel): string[] {
   const rationale: string[] = [];
-  const { answers, cv, bodyZone } = session;
+  const { answers, bodyZone } = session;
+  const cv = measuredView(session);
 
   if (answers.durationOver30Days === 'yes') {
     rationale.push('Wound reported present for more than 30 days → likely chronic.');
@@ -166,13 +186,19 @@ function buildRationale(session: ScanSession, classification: Classification, ur
 
   if (cv) {
     rationale.push(
-      `Image analysis (demo): ${cv.granulationPercent}% granulation, ${cv.sloughPercent}% slough, ${cv.necrosisPercent}% necrosis.`,
+      cv.source === 'approved_outline'
+        ? `Tissue measured inside the approved outline: ${cv.granulationPercent}% granulation, ${cv.sloughPercent}% slough, ${cv.necrosisPercent}% necrosis.`
+        : `Image analysis (on-device colour estimate, outline not reviewed): ${cv.granulationPercent}% granulation, ${cv.sloughPercent}% slough, ${cv.necrosisPercent}% necrosis.`,
     );
     if (cv.sloughPercent + cv.necrosisPercent > 50) {
       rationale.push('High slough/necrosis proportion in image → supports chronic/healing-delay pattern.');
     }
     if (cv.areaCm2) {
-      rationale.push(`Estimated wound area: ${cv.areaCm2.toFixed(1)} cm² (coin reference used).`);
+      rationale.push(
+        `Estimated wound area: ${cv.areaCm2.toFixed(1)} cm²` +
+          (cv.lengthCm && cv.widthCm ? `, ${cv.lengthCm.toFixed(1)} × ${cv.widthCm.toFixed(1)} cm` : '') +
+          ' (coin reference used).',
+      );
     } else {
       rationale.push('Wound area shown as relative measurement (no scale reference).');
     }
@@ -210,13 +236,21 @@ function buildRationale(session: ScanSession, classification: Classification, ur
   return rationale;
 }
 
-export function assess(session: ScanSession): AssessmentResult {
+/**
+ * The result the screen shows.
+ *
+ * `engineResult` is the server pipeline's decision, when it has one: the same
+ * deterministic engine over the same inputs, plus the caged image review. When
+ * supplied it is rendered as-is, so the screen cannot show one decision while
+ * the audit log records another. Without it, the engine runs here.
+ */
+export function assess(session: ScanSession, engineResult?: EngineResult | null): AssessmentResult {
   const classification = classifyWound(session);
   let urgency = assessUrgency(session);
   const rationale = buildRationale(session, classification, urgency);
 
   // Deterministic guideline engine (CWCS dressing + Mölnlycke referrals).
-  const engine = evaluate(toEngineInputs(session));
+  const engine = engineResult ?? evaluate(toEngineInputs(session));
 
   // An urgent guideline referral can raise the overall urgency.
   const hasUrgentReferral = engine.referrals.some((r) => r.urgency === 'urgent');
@@ -260,7 +294,7 @@ export function assess(session: ScanSession): AssessmentResult {
     confidence: engine.confidence,
     gateCodes: engine.gateCodes,
     pathwayWithheld: engine.pathwayWithheld,
-    areaCm2: session.cv?.areaCm2 ?? null,
+    areaCm2: measuredView(session)?.areaCm2 ?? null,
   };
 }
 

@@ -10,7 +10,11 @@ import type { Cv, CvMat } from './cv';
 
 /** Mölnlycke step 5 assesses the skin within 4 cm of the wound edge. */
 export const PERIWOUND_BAND_CM = 4;
-/** Cap the dilation kernel so a very large px/cm can't blow up the morphology op. */
+/**
+ * Largest single dilation kernel. A 4 cm band at ~42 px/cm is a ~337 px kernel;
+ * the old code capped one dilation at 151 px, so the "4 cm" band was really
+ * ~1.8 cm. The band is now grown in several steps of at most this size.
+ */
 const MAX_PERIWOUND_KERNEL = 151;
 /** Share of the band that must read as waterlogged before we call it maceration. */
 const MACERATION_THRESHOLD_PCT = 15;
@@ -35,6 +39,8 @@ export function measurePeriwound(
   rgb: CvMat,
   woundMask: CvMat,
   pxPerCm: number | null,
+  /** Circles (pixels) to leave out of the band — the reference coin is not skin. */
+  exclude: { x: number; y: number; r: number }[] = [],
 ): Periwound | null {
   if (!pxPerCm || pxPerCm <= 0) {
     return null;
@@ -45,16 +51,28 @@ export function measurePeriwound(
     return null;
   }
 
-  const kernelSize = Math.min(2 * radiusPx + 1, MAX_PERIWOUND_KERNEL);
-  const kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(kernelSize, kernelSize));
-  const dilated = new cv.Mat();
+  // Grow the band in equal steps so no single kernel exceeds the cap; the total
+  // radius is the full 4 cm.
+  const steps = Math.max(1, Math.ceil((2 * radiusPx + 1) / MAX_PERIWOUND_KERNEL));
+  const stepRadius = Math.ceil(radiusPx / steps);
+  const kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(2 * stepRadius + 1, 2 * stepRadius + 1));
+  const dilated = woundMask.clone();
   const ring = new cv.Mat();
 
   try {
-    cv.dilate(woundMask, dilated, kernel);
+    for (let i = 0; i < steps; i += 1) cv.dilate(dilated, dilated, kernel);
     cv.subtract(dilated, woundMask, ring);
 
     const band = ring.data;
+    const width = ring.cols;
+    for (const c of exclude) {
+      const reach = c.r * 1.15;
+      for (let y = Math.max(0, Math.floor(c.y - reach)); y <= Math.min(ring.rows - 1, Math.ceil(c.y + reach)); y += 1) {
+        for (let x = Math.max(0, Math.floor(c.x - reach)); x <= Math.min(width - 1, Math.ceil(c.x + reach)); x += 1) {
+          if ((x - c.x) ** 2 + (y - c.y) ** 2 <= reach * reach) band[y * width + x] = 0;
+        }
+      }
+    }
     const pixels = rgb.data;
     const channels = rgb.channels();
 

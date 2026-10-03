@@ -1,131 +1,139 @@
 /**
- * The segmentation facade: one call that produces a wound boundary, from
- * whichever backend is configured and working.
+ * The segmentation facade: one call that proposes a wound boundary for the
+ * clinician to review (segmentation build spec §3, §6.4).
  *
- * Two backends, tried in order (`SEGMENTATION_PROVIDERS`, default sam3 → fusegnet):
+ *   1. SAM 3 (fal.ai), with the text prompt "wound" plus any taps and box the
+ *      clinician has added on the review screen. When it returns several masks,
+ *      the spec's rule picks one: drop masks that contradict a tap, then take
+ *      the highest score.
+ *   2. FUSegNet (Modal), two roles:
+ *        - SECOND OPINION on SAM 3's box, for foot wounds (`FUSEGNET_TRIGGER`).
+ *          Agreement between the two outlines sets the confidence.
+ *        - FALLBACK when SAM 3 fails or returns an implausible mask.
+ *   3. The HSV colour mask, when no model answers — `source: 'hsv'`, so the
+ *      review screen can say so and the clinician corrects it with the same tools.
  *
- *  | provider  | host   | prompt            | returns              |
- *  |-----------|--------|-------------------|----------------------|
- *  | sam3      | fal.ai | concept "wound"   | every match + scores |
- *  | fusegnet  | Modal  | none (wound-only) | one binary mask      |
- *
- * SAM 2 on Replicate used to be a third provider. It has been removed: as the
- * automatic mask generator it took no prompt, segmented everything in frame, and
- * the wound had to be guessed back out of the result — it did not work well
- * enough to be worth keeping even as a fallback. Below these two the fallback is
- * the on-device HSV mask, as it always was.
- *
- * Why a chain rather than one provider: the build spec requires web/native
- * parity and conservative degradation (§2.4, §2.5). A GPU endpoint cold-starting,
- * rate-limiting or being redeployed is routine, and the assessment must still
- * produce a boundary — the next provider, and finally the on-device HSV mask.
- * Every attempt is recorded in `attempts` and lands in the audit log, so "which
- * model drew this boundary" is answerable after the fact rather than inferred.
- *
- * The cage is unchanged by any of this: both produce a BOUNDARY only. Tissue
- * composition is measured by OpenCV HSI inside the mask; the dressing pathway
- * comes from the deterministic engine.
+ * Never throws: a dead backend becomes a recorded attempt. The cage is
+ * unchanged — every provider produces a BOUNDARY only, and nothing downstream
+ * runs until a clinician approves it.
  */
 
 import { isFusegnetConfigured, runFusegnet } from './_fusegnet';
-import { traceOutline, type MaskPoint } from './_maskGeometry';
-import { loadMaskPixels, selectWoundMask, type MaskSelection } from './_maskSelect';
+import { hsvMaskFromImage } from './_hsvMask';
+import type { NormalisedImage } from './_image';
+import { compareMasks, traceOutline, type MaskPoint } from './_maskGeometry';
+import { loadMaskPixels, toPngDataUri, type MaskPixels } from './_maskIO';
 import { isSam3Configured, runSam3 } from './_sam3';
 import {
+  agreementConfidence,
   confidenceFromScore,
+  cxcywhToPixelBox,
   describePlausibility,
-  highestScoreIndex,
+  maskBoxCxcywh,
   maskPlausibility,
   parseProviderOrder,
-  type ImagePoint,
+  selectByPrompts,
+  shouldRunSecondOpinion,
   type MaskConfidence,
   type SegmentationProvider,
+  type SegmentPrompts,
 } from './_segmentationParse';
 
-export type { ImagePoint, MaskConfidence, SegmentationProvider } from './_segmentationParse';
-export type { MaskSelection } from './_maskSelect';
+export type { MaskConfidence, SegmentationProvider, SegmentPrompts } from './_segmentationParse';
 export type { MaskPoint, BoundaryApproval } from './_maskGeometry';
 
 /**
- * How the boundary was obtained — recorded because it is the single most
- * informative thing about how much the mask can be trusted:
- *  - `concept`: a generalist told to find "wound"
+ * How the boundary was obtained:
+ *  - `concept`: a generalist told to find "wound" (plus any taps / box)
  *  - `wound-specific`: a wound-only model, nothing to disambiguate
+ *  - `colour`: the HSV threshold fallback — no model at all
  */
-export type PromptMode = 'concept' | 'wound-specific';
+export type PromptMode = 'concept' | 'wound-specific' | 'colour';
 
 export type AttemptStatus = 'ok' | 'skipped' | 'failed' | 'implausible';
 
 export type SegmentationAttempt = {
-  provider: SegmentationProvider;
+  provider: SegmentationProvider | 'hsv';
   status: AttemptStatus;
   ms: number;
   reason?: string;
 };
 
+/** FUSegNet's second opinion on SAM 3's boundary (spec §6.4). */
+export type SecondOpinion =
+  | {
+      status: 'ok';
+      model: string;
+      mask: string;
+      outline: MaskPoint[] | null;
+      /** IoU of the two outlines on SAM 3's grid. */
+      agreementIoU: number | null;
+      regions: Record<string, number | boolean> | null;
+      regionsKept: number | null;
+      multipleRegions: boolean | null;
+      meanProb: number | null;
+      latencyMs: number | null;
+      ms: number;
+    }
+  | { status: 'unavailable'; reason: string; ms: number };
+
 export type SegmentationOutcome = {
-  /** Which backend produced `mask`, or null when none did. */
+  /** Who drew `mask`: a model, the colour fallback, or nobody (null). */
+  source: SegmentationProvider | 'hsv' | null;
+  /** The model provider, when a model drew it. */
   provider: SegmentationProvider | null;
-  /** The wound mask (http url or data uri). */
   mask: string | null;
-  /** All masks the winning provider returned (one, for FUSegNet). */
-  masks: string[];
-  /** Which of `masks` was chosen as the wound, when a choice was made. */
-  selection: MaskSelection | null;
-  /** Per-mask scores, when the provider reports them (SAM 3 does). */
-  scores: number[] | null;
-  /**
-   * The provider saw more than one disconnected region — satellite lesions, two
-   * wounds in one frame, or a boundary that broke up. Recorded, not acted on:
-   * acting on it is a clinical judgement that belongs to the engine.
-   * Null when the provider does not report it.
-   */
-  multipleRegions: boolean | null;
-  /**
-   * The chosen mask's boundary as an editable fractional polygon.
-   *
-   * This is what makes the review screen possible: the clinician adjusts THIS,
-   * rather than being handed an opaque PNG and a yes/no. Null when the mask could
-   * not be traced, in which case the review screen offers "draw" instead of
-   * "adjust" — there is nothing honest to pre-fill the editor with.
-   */
-  outline: MaskPoint[] | null;
+  /** The chosen mask's own score, when the provider reports one. */
+  score: number | null;
+  /** Normalised [cx, cy, w, h] of the chosen mask. */
+  box: [number, number, number, number] | null;
   confidence: MaskConfidence;
   model: string | null;
   promptMode: PromptMode | null;
-  /** Every provider tried, in order, with why it was skipped or failed. */
+  /** Editable fractional polygon traced from the mask, for the review screen. */
+  outline: MaskPoint[] | null;
+  multipleRegions: boolean | null;
+  /** Dimensions of the image the models saw (≤ 1024 on the longer edge). */
+  frame: { width: number; height: number };
+  /** Set pixels of the chosen mask, and the mask's frame size. */
+  areaPx: number | null;
+  totalPx: number | null;
+  /** How many candidate masks the provider returned. */
+  candidates: number;
+  /** No candidate satisfied every tap — the top-scoring one was used anyway. */
+  promptConflict: boolean;
+  secondOpinion: SecondOpinion | null;
+  /** Why there was no second opinion, when there was none. */
+  secondOpinionReason: string | null;
+  latencyMs: number;
   attempts: SegmentationAttempt[];
-  /** Why there is no mask, when there is no mask. */
   reason?: string;
 };
 
 type Candidate = {
   mask: string;
-  masks: string[];
-  selection: MaskSelection | null;
-  scores: number[] | null;
-  multipleRegions: boolean | null;
-  outline: MaskPoint[] | null;
+  pixels: MaskPixels;
+  score: number | null;
+  box: [number, number, number, number] | null;
   confidence: MaskConfidence;
   model: string;
   promptMode: PromptMode;
+  multipleRegions: boolean | null;
+  candidates: number;
+  promptConflict: boolean;
 };
 
 /** Providers in the configured order, annotated with whether they can run. */
 export function providerStatus(): { provider: SegmentationProvider; configured: boolean }[] {
-  return parseProviderOrder(process.env.SEGMENTATION_PROVIDERS).map((provider) => ({
-    provider,
-    configured: isProviderConfigured(provider),
-  }));
+  return providerOrder().map((provider) => ({ provider, configured: isProviderConfigured(provider) }));
+}
+
+function providerOrder(): SegmentationProvider[] {
+  return parseProviderOrder(process.env.SEGMENTATION_PROVIDERS ?? process.env.SEGMENT_PROVIDER);
 }
 
 export function isProviderConfigured(provider: SegmentationProvider): boolean {
-  switch (provider) {
-    case 'sam3':
-      return isSam3Configured();
-    case 'fusegnet':
-      return isFusegnetConfigured();
-  }
+  return provider === 'sam3' ? isSam3Configured() : isFusegnetConfigured();
 }
 
 /** True when at least one provider in the configured order can run. */
@@ -138,209 +146,266 @@ const MISSING_ENV: Record<SegmentationProvider, string> = {
   fusegnet: 'FUSEGNET_MODAL_URL',
 };
 
-/**
- * FUSegNet confidence. A plausible mask from a wound-only model with no
- * selection ambiguity is the strong case, so a missing score does NOT downgrade
- * it the way it does for a generalist — the only downgrade signal is the model's
- * own low score. (Compare `confidenceFromScore`, which treats a missing score as
- * medium because there a mask could be of anything.)
- */
-function fusegnetConfidence(score: number | null): MaskConfidence {
-  if (typeof score === 'number' && Number.isFinite(score) && score < 0.5) return 'medium';
-  return 'high';
-}
-
 /** A mask that came back but cannot be a wound. Distinguished so the audit trail can say so. */
 class ImplausibleMask extends Error {}
 
-async function tryFusegnet(imageDataUrl: string): Promise<Candidate> {
-  const result = await runFusegnet({ imageDataUrl });
-  const mask = result.mask;
-
-  // Measure it before trusting it: a mask covering the whole frame or two
-  // pixels is a failure the tissue classifier cannot detect on its own. The same
-  // decode also yields the outline the review screen edits.
-  const pixels = await loadMaskPixels(mask);
-  if (!pixels) {
-    throw new Error('FUSegNet returned a mask that could not be decoded.');
-  }
-  const verdict = maskPlausibility(pixels.areaPx, pixels.totalPx);
-  if (verdict !== 'plausible') {
-    throw new ImplausibleMask(`FUSegNet: ${describePlausibility(verdict)}.`);
-  }
-
-  return {
-    mask,
-    masks: [mask],
-    selection: { index: 0, maskUrl: mask, areaPx: pixels.areaPx, totalPx: pixels.totalPx },
-    scores: typeof result.score === 'number' ? [result.score] : null,
-    multipleRegions: result.multipleRegions,
-    outline: traceOutline(pixels.data, pixels.width, pixels.height),
-    confidence: fusegnetConfidence(result.score),
-    model: result.model,
-    promptMode: 'wound-specific',
-  };
+function hit(mask: MaskPixels, xPct: number, yPct: number): boolean {
+  const x = Math.min(mask.width - 1, Math.max(0, Math.floor(xPct * mask.width)));
+  const y = Math.min(mask.height - 1, Math.max(0, Math.floor(yPct * mask.height)));
+  return mask.data[y * mask.width + x] !== 0;
 }
 
-async function trySam3(imageDataUrl: string, point: ImagePoint | null): Promise<Candidate> {
-  const result = await runSam3({ imageDataUrl, point });
+function assertPlausible(provider: string, pixels: MaskPixels): void {
+  const verdict = maskPlausibility(pixels.areaPx, pixels.totalPx);
+  if (verdict !== 'plausible') throw new ImplausibleMask(`${provider}: ${describePlausibility(verdict)}.`);
+}
 
-  // One match is the common case for a single wound: take it, and check its size.
-  if (result.masks.length === 1) {
-    const mask = result.masks[0];
-    const pixels = await loadMaskPixels(mask);
-    if (!pixels) throw new Error('SAM 3 returned a mask that could not be decoded.');
-    const verdict = maskPlausibility(pixels.areaPx, pixels.totalPx);
-    if (verdict !== 'plausible') {
-      throw new ImplausibleMask(`SAM 3: ${describePlausibility(verdict)}.`);
-    }
-    return {
-      mask,
-      masks: result.masks,
-      selection: { index: 0, maskUrl: mask, areaPx: pixels.areaPx, totalPx: pixels.totalPx },
-      scores: result.scores,
-      // One match from a concept prompt is, by definition, one region.
-      multipleRegions: false,
-      outline: traceOutline(pixels.data, pixels.width, pixels.height),
-      confidence: confidenceFromScore(result.scores?.[0] ?? null),
-      model: result.model,
-      promptMode: 'concept',
-    };
-  }
+async function trySam3(image: NormalisedImage, prompts: SegmentPrompts): Promise<Candidate> {
+  const result = await runSam3({ imageDataUrl: image.dataUrl, imageBytes: image.bytes, prompts });
+  const decoded = await Promise.all(result.masks.map((m) => loadMaskPixels(m)));
+  const points = prompts.points ?? [];
 
-  // Several instances of "wound". The HSV centroid disambiguates — and when it
-  // does, that is two independent signals agreeing on the same region, which is
-  // a stronger result than either alone. Without a centroid, fall back to fal's
-  // own top-scoring mask at medium confidence: nothing has corroborated it.
-  const selection = point ? await selectWoundMask(result.masks, point) : null;
-  const fallbackIndex = highestScoreIndex(result.scores) ?? 0;
-  const index = selection?.index ?? fallbackIndex;
-  const mask = result.masks[index];
-  if (!mask) throw new Error('SAM 3 returned no usable mask.');
+  const usable = decoded
+    .map((pixels, index) => ({ pixels, index }))
+    .filter((d): d is { pixels: MaskPixels; index: number } => d.pixels !== null);
+  if (usable.length === 0) throw new Error('SAM 3 returned masks that could not be decoded.');
 
-  // One decode of the chosen mask serves the plausibility check and the outline.
-  const pixels = await loadMaskPixels(mask);
-  if (pixels) {
-    const verdict = maskPlausibility(pixels.areaPx, pixels.totalPx);
-    if (verdict !== 'plausible') {
-      throw new ImplausibleMask(`SAM 3: ${describePlausibility(verdict)}.`);
-    }
-  }
+  const choice = selectByPrompts(
+    usable.map((u) => ({
+      score: result.scores?.[u.index] ?? null,
+      pointHits: points.map((p) => hit(u.pixels, p.xPct, p.yPct)),
+    })),
+    points.map((p) => p.label),
+  );
+  const chosen = usable[choice?.index ?? 0];
+  assertPlausible('SAM 3', chosen.pixels);
 
+  const score = result.scores?.[chosen.index] ?? null;
+  const conflict = choice?.conflict ?? false;
   return {
-    mask,
-    masks: result.masks,
-    selection: selection ?? null,
-    scores: result.scores,
-    // SAM 3 matched the concept more than once in this frame.
-    multipleRegions: result.masks.length > 1,
-    outline: pixels ? traceOutline(pixels.data, pixels.width, pixels.height) : null,
-    confidence: selection ? 'high' : 'medium',
+    mask: result.masks[chosen.index],
+    pixels: chosen.pixels,
+    score,
+    box: result.boxes?.[chosen.index] ?? maskBoxCxcywh(chosen.pixels.data, chosen.pixels.width, chosen.pixels.height),
+    // A mask that contradicts the clinician's own taps is low confidence,
+    // whatever the model thinks of it.
+    confidence: conflict ? 'low' : confidenceFromScore(score),
     model: result.model,
     promptMode: 'concept',
+    multipleRegions: result.masks.length > 1,
+    candidates: result.masks.length,
+    promptConflict: conflict,
+  };
+}
+
+async function tryFusegnet(image: NormalisedImage): Promise<Candidate> {
+  const result = await runFusegnet({ imageDataUrl: image.dataUrl });
+  const pixels = await loadMaskPixels(result.mask);
+  if (!pixels) throw new Error('FUSegNet returned a mask that could not be decoded.');
+  assertPlausible('FUSegNet', pixels);
+  return {
+    mask: result.mask,
+    pixels,
+    score: result.score,
+    box: maskBoxCxcywh(pixels.data, pixels.width, pixels.height),
+    // As a FALLBACK, FUSegNet has no second model to agree with. Its mean_prob
+    // can only downgrade (it has no abstain — it outlined a carpet at 0.95), so
+    // the best it gets alone is medium.
+    confidence: typeof result.score === 'number' && result.score < 0.5 ? 'low' : 'medium',
+    model: result.model,
+    promptMode: 'wound-specific',
+    multipleRegions: result.multipleRegions,
+    candidates: 1,
+    promptConflict: false,
+  };
+}
+
+/** FUSegNet on SAM 3's box. Never throws — any failure means "skip it" (spec §6.4). */
+async function secondOpinion(image: NormalisedImage, sam: Candidate): Promise<SecondOpinion> {
+  const started = Date.now();
+  try {
+    const box = sam.box ? cxcywhToPixelBox(sam.box, image) : null;
+    const result = await runFusegnet({ imageDataUrl: image.dataUrl, box });
+    const pixels = await loadMaskPixels(result.mask);
+    if (!pixels) throw new Error('mask could not be decoded');
+    const iou = compareMasks(sam.pixels, pixels, sam.pixels.width, sam.pixels.height).iou;
+    return {
+      status: 'ok',
+      model: result.model,
+      mask: result.mask,
+      outline: traceOutline(pixels.data, pixels.width, pixels.height),
+      agreementIoU: iou === null ? null : Number(iou.toFixed(4)),
+      regions: result.regions,
+      regionsKept: result.regionsKept,
+      multipleRegions: result.multipleRegions,
+      meanProb: result.score,
+      latencyMs: result.latencyMs,
+      ms: Date.now() - started,
+    };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : 'second opinion failed';
+    console.warn(`fusegnet: unavailable — ${reason}`);
+    return { status: 'unavailable', reason, ms: Date.now() - started };
+  }
+}
+
+async function hsvFallback(image: NormalisedImage): Promise<Candidate | null> {
+  const hsv = await hsvMaskFromImage(image.base64);
+  let areaPx = 0;
+  for (let i = 0; i < hsv.data.length; i += 1) if (hsv.data[i]) areaPx += 1;
+  if (areaPx === 0) return null;
+  const pixels: MaskPixels = { ...hsv, areaPx, totalPx: hsv.width * hsv.height };
+  return {
+    mask: toPngDataUri(hsv.data, hsv.width, hsv.height),
+    pixels,
+    score: null,
+    box: maskBoxCxcywh(hsv.data, hsv.width, hsv.height),
+    // A colour threshold is not a wound detector: it is a starting point for the
+    // clinician to correct, never something to approve unread.
+    confidence: 'low',
+    model: 'hsv-threshold',
+    promptMode: 'colour',
+    multipleRegions: null,
+    candidates: 1,
+    promptConflict: false,
   };
 }
 
 /**
- * Run the provider chain. Never throws: the worst outcome is
- * `{ provider: null, mask: null }`, which every caller already handles by
- * falling back to the on-device HSV boundary.
+ * Propose a boundary. `bodyZone` decides whether FUSegNet gives a second
+ * opinion; `prompts` are the clinician's text, taps and box from review.
  */
 export async function runSegmentation(args: {
-  imageDataUrl: string;
-  point?: ImagePoint | null;
+  image: NormalisedImage;
+  prompts?: SegmentPrompts | null;
+  bodyZone?: string | null;
 }): Promise<SegmentationOutcome> {
-  const point = args.point ?? null;
+  const started = Date.now();
+  const prompts = args.prompts ?? {};
   const attempts: SegmentationAttempt[] = [];
-  const order = parseProviderOrder(process.env.SEGMENTATION_PROVIDERS);
+  const frame = { width: args.image.width, height: args.image.height };
 
-  for (const provider of order) {
-    if (!isProviderConfigured(provider)) {
-      attempts.push({
-        provider,
-        status: 'skipped',
-        ms: 0,
-        reason: `not configured (${MISSING_ENV[provider]} unset)`,
-      });
+  let provider: SegmentationProvider | null = null;
+  let candidate: Candidate | null = null;
+
+  for (const p of providerOrder()) {
+    if (!isProviderConfigured(p)) {
+      attempts.push({ provider: p, status: 'skipped', ms: 0, reason: `not configured (${MISSING_ENV[p]} unset)` });
       continue;
     }
-
-    const started = Date.now();
+    const t0 = Date.now();
     try {
-      const candidate =
-        provider === 'sam3'
-          ? await trySam3(args.imageDataUrl, point)
-          : await tryFusegnet(args.imageDataUrl);
-
-      attempts.push({ provider, status: 'ok', ms: Date.now() - started });
-      return { provider, attempts, ...candidate };
+      candidate = p === 'sam3' ? await trySam3(args.image, prompts) : await tryFusegnet(args.image);
+      provider = p;
+      attempts.push({ provider: p, status: 'ok', ms: Date.now() - t0 });
+      break;
     } catch (error) {
       const reason = error instanceof Error ? error.message : 'segmentation failed';
+      attempts.push({ provider: p, status: error instanceof ImplausibleMask ? 'implausible' : 'failed', ms: Date.now() - t0, reason });
+      console.warn(`Segmentation provider ${p} did not produce a usable mask: ${reason}`);
+    }
+  }
+
+  // Second opinion: only on a SAM 3 boundary, only when the trigger says so.
+  let opinion: SecondOpinion | null = null;
+  let opinionReason: string | null = null;
+  let confidence = candidate?.confidence ?? 'low';
+  if (provider === 'sam3' && candidate) {
+    if (!isFusegnetConfigured()) {
+      opinionReason = 'FUSegNet not configured';
+    } else if (!shouldRunSecondOpinion(process.env.FUSEGNET_TRIGGER, args.bodyZone)) {
+      opinionReason = `not triggered (FUSEGNET_TRIGGER=${process.env.FUSEGNET_TRIGGER ?? 'foot'}, location ${args.bodyZone ?? 'unknown'})`;
+    } else {
+      opinion = await secondOpinion(args.image, candidate);
+      if (opinion.status === 'ok') {
+        // Agreement between two independent models replaces the score-based band.
+        confidence = agreementConfidence({
+          iou: opinion.agreementIoU,
+          multipleRegions: opinion.multipleRegions,
+          regionsKept: opinion.regionsKept,
+        });
+      } else {
+        opinionReason = opinion.reason;
+      }
+    }
+  }
+
+  let source: SegmentationOutcome['source'] = provider;
+  let reason: string | undefined;
+  if (!candidate) {
+    reason = summariseFailure(attempts);
+    const t0 = Date.now();
+    try {
+      candidate = await hsvFallback(args.image);
       attempts.push({
-        provider,
-        status: error instanceof ImplausibleMask ? 'implausible' : 'failed',
-        ms: Date.now() - started,
-        reason,
+        provider: 'hsv',
+        status: candidate ? 'ok' : 'failed',
+        ms: Date.now() - t0,
+        reason: candidate ? undefined : 'the colour estimate found no wound-coloured area',
       });
-      // Conservative by default: try the next provider rather than returning a
-      // boundary we have just decided not to trust.
-      console.warn(`Segmentation provider ${provider} did not produce a usable mask: ${reason}`);
+      if (candidate) {
+        source = 'hsv';
+        confidence = 'low';
+      }
+    } catch (error) {
+      attempts.push({ provider: 'hsv', status: 'failed', ms: Date.now() - t0, reason: error instanceof Error ? error.message : 'hsv failed' });
     }
   }
 
   return {
-    provider: null,
-    mask: null,
-    masks: [],
-    selection: null,
-    scores: null,
-    multipleRegions: null,
-    outline: null,
-    confidence: 'low',
-    model: null,
-    promptMode: null,
+    source,
+    provider,
+    mask: candidate?.mask ?? null,
+    score: candidate?.score ?? null,
+    box: candidate?.box ?? null,
+    confidence,
+    model: candidate?.model ?? null,
+    promptMode: candidate?.promptMode ?? null,
+    outline: candidate ? traceOutline(candidate.pixels.data, candidate.pixels.width, candidate.pixels.height) : null,
+    multipleRegions: candidate?.multipleRegions ?? null,
+    frame,
+    areaPx: candidate?.pixels.areaPx ?? null,
+    totalPx: candidate?.pixels.totalPx ?? null,
+    candidates: candidate?.candidates ?? 0,
+    promptConflict: candidate?.promptConflict ?? false,
+    secondOpinion: opinion,
+    secondOpinionReason: opinionReason,
+    latencyMs: Date.now() - started,
     attempts,
-    reason: summariseFailure(attempts),
+    reason,
   };
 }
 
 /**
- * Log which model drew the boundary, as one structured line.
- *
- * `/api/segment` is the endpoint the APP actually calls, and it persists nothing:
- * `writeAudit` is only reached from `evaluate`/`run`, which only the compare
- * screen uses. So without this, every real assessment a clinician does through
- * the app leaves no record of which model produced the boundary the tissue
- * percentages were measured inside — the one fact the audit trail most needs.
- *
- * Deliberately stdout rather than a database row: Vercel retains function logs,
- * `writeAudit` already uses the same fallback, and a boundary call is not an
- * assessment — writing an `audit_log` row per segment would put rows in there
- * that no clinical decision corresponds to. The real fix is for the app to go
- * through `run`, which audits properly; this makes the gap observable until then.
- *
- * De-identified by construction: no image, no mask data, no free text from a
- * provider beyond its own failure reason.
+ * One structured log line per segmentation — latency, scores, prompt counts and
+ * outcome only. No image, no mask (spec §3.1).
  */
-export function logSegmentation(outcome: SegmentationOutcome, context?: { assessmentId?: string | null }): void {
+export function logSegmentation(
+  outcome: SegmentationOutcome,
+  context?: { assessmentId?: string | null; prompts?: SegmentPrompts | null; requestId?: string },
+): void {
   console.log(
     '[segment]',
     JSON.stringify({
       at: new Date().toISOString(),
+      requestId: context?.requestId ?? null,
       assessmentId: context?.assessmentId ?? null,
-      provider: outcome.provider,
+      source: outcome.source,
       model: outcome.model,
       promptMode: outcome.promptMode,
       confidence: outcome.confidence,
-      maskFound: Boolean(outcome.mask),
-      areaPx: outcome.selection?.areaPx ?? null,
-      framePx: outcome.selection?.totalPx ?? null,
-      areaPct: outcome.selection ? Number(((100 * outcome.selection.areaPx) / outcome.selection.totalPx).toFixed(2)) : null,
-      scores: outcome.scores,
-      multipleRegions: outcome.multipleRegions,
-      outlinePoints: outcome.outline?.length ?? null,
-      // The whole chain, so a silent degradation is visible in the logs rather
-      // than only in a response nobody kept.
+      score: outcome.score,
+      candidates: outcome.candidates,
+      promptConflict: outcome.promptConflict,
+      points: context?.prompts?.points?.length ?? 0,
+      box: Boolean(context?.prompts?.box),
+      areaPct: outcome.areaPx && outcome.totalPx ? Number(((100 * outcome.areaPx) / outcome.totalPx).toFixed(2)) : null,
+      secondOpinion: outcome.secondOpinion
+        ? outcome.secondOpinion.status === 'ok'
+          ? { iou: outcome.secondOpinion.agreementIoU, regions: outcome.secondOpinion.regions, meanProb: outcome.secondOpinion.meanProb, latencyMs: outcome.secondOpinion.latencyMs }
+          : { status: 'unavailable', reason: outcome.secondOpinion.reason }
+        : outcome.secondOpinionReason,
+      latencyMs: outcome.latencyMs,
       attempts: outcome.attempts.map((a) => ({ provider: a.provider, status: a.status, ms: a.ms, reason: a.reason ?? null })),
       reason: outcome.reason ?? null,
     }),
@@ -348,13 +413,12 @@ export function logSegmentation(outcome: SegmentationOutcome, context?: { assess
 }
 
 function summariseFailure(attempts: SegmentationAttempt[]): string {
-  if (attempts.length === 0) return 'No segmentation provider is configured.';
-  if (attempts.every((a) => a.status === 'skipped')) {
-    return `No segmentation provider is configured (${attempts.map((a) => a.provider).join(', ')}).`;
+  if (attempts.length === 0 || attempts.every((a) => a.status === 'skipped')) {
+    return 'No segmentation model is configured — using the colour estimate.';
   }
   const tried = attempts
     .filter((a) => a.status !== 'skipped')
     .map((a) => `${a.provider}: ${a.reason ?? a.status}`)
     .join('; ');
-  return `No usable wound boundary — ${tried}`;
+  return `No model produced a usable boundary (${tried}) — using the colour estimate.`;
 }

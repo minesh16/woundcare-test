@@ -2,6 +2,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 import type { AssessmentState, StepOutcome } from '../../../src/assessment/state';
 import type { EngineInputs, EngineResult } from '../../../src/decision/engine.types';
+import { canonicalHash } from '../../_apiCore';
 
 /**
  * Persistence for the V2 pipeline — Supabase, server-side only.
@@ -151,19 +152,24 @@ export type AuditRecord = {
      * single most useful thing this column can tell them.
      */
     segmentationApproval?: string;
+    /** The approval this assessment was measured under (spec §6A.1). */
+    approvalId?: string;
+    /** SHA-256 of the image — ties the record to a photo without storing it. */
+    imageSha256?: string;
   };
   steps: StepOutcome[];
 };
 
-/** Order-independent, dependency-free hash of the engine inputs (FNV-1a over sorted JSON). */
+/**
+ * SHA-256 of the engine inputs, canonicalised with keys sorted at EVERY level
+ * (docs/SECURITY_AUDIT.md MW-05). The old hash passed `Object.keys(inputs)` as a
+ * `JSON.stringify` replacer, which also filtered NESTED keys — so most of the
+ * tissue, VLM and Mölnlycke detail never reached it, and two different
+ * assessments could share a hash. Old 8-character FNV values in `audit_log`
+ * are not comparable with these 64-character ones; rows are not rewritten.
+ */
 export function hashInputs(inputs: EngineInputs): string {
-  const canonical = JSON.stringify(inputs, Object.keys(inputs).sort());
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < canonical.length; i += 1) {
-    hash ^= canonical.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return hash.toString(16).padStart(8, '0');
+  return canonicalHash(inputs);
 }
 
 export function buildAuditRecord(
@@ -187,6 +193,8 @@ export function buildAuditRecord(
       segmentation: state.segment?.model,
       segmentationProvider: state.segment?.source === 'unavailable' ? undefined : state.segment?.source,
       segmentationApproval: state.segment?.approval,
+      approvalId: state.segment?.approvalId,
+      imageSha256: state.imageSha256 ?? undefined,
       llm: state.report?.model,
     },
     steps: state.steps ?? [],
@@ -223,5 +231,87 @@ export async function writeAudit(record: AuditRecord): Promise<void> {
   } catch (error) {
     console.warn('Supabase audit write failed — falling back to log output.', error);
     console.log('[audit]', JSON.stringify(record));
+  }
+}
+
+// ===========================================================================
+// Segmentation correction log (segmentation spec §4.1) — the dataset of how
+// far clinicians move the model's boundary. Same rules as everything above:
+// never on the critical path, stdout when the database is absent.
+// ===========================================================================
+
+export type CorrectionRow = {
+  assessment_id: string;
+  model: string | null;
+  confidence: string | null;
+  score: number | null;
+  approval: 'approved' | 'adjusted' | 'drawn';
+  iou: number | null;
+  ai_area_px: number | null;
+  final_area_px: number | null;
+  area_delta_pct: number | null;
+  boundary_changed: boolean | null;
+  n_edits: number;
+  n_taps: number;
+  box_used: boolean;
+  ms_to_approve: number | null;
+  wound_location: string | null;
+  monk_tone: number | null;
+  image_source: 'public_dataset' | 'synthetic' | 'consented_demo';
+  ai_mask_png: string | null;
+  final_mask_png: string | null;
+  approval_id: string | null;
+  clinician_id: string | null;
+  second_opinion_status: 'ok' | 'unavailable' | null;
+  agreement_iou: number | null;
+  fusegnet_regions: Record<string, number | boolean> | null;
+  fusegnet_mean_prob: number | null;
+  fusegnet_latency_ms: number | null;
+};
+
+/** Insert one correction row; returns its id, or null when it went to stdout. */
+export async function writeCorrection(row: CorrectionRow): Promise<string | null> {
+  const db = getClient();
+  // The log line never carries the mask images, whatever the image source.
+  const loggable = { ...row, ai_mask_png: row.ai_mask_png ? '[stored]' : null, final_mask_png: row.final_mask_png ? '[stored]' : null };
+  if (!db) {
+    console.log('[correction]', JSON.stringify(loggable));
+    return null;
+  }
+  try {
+    const { data, error } = await db.from('segmentation_corrections').insert(row).select('id').single();
+    if (error) throw error;
+    return (data?.id as string) ?? null;
+  } catch (error) {
+    console.warn('Supabase correction write failed — falling back to log output.', error);
+    console.log('[correction]', JSON.stringify(loggable));
+    return null;
+  }
+}
+
+/** Record the tissue confirmation (§4.3) against an existing correction row. */
+export async function updateCorrectionTissue(
+  id: string,
+  fields: {
+    tissue_auto: string | null;
+    tissue_final: string;
+    tissue_override: boolean;
+    wound_location: string | null;
+    monk_tone: number | null;
+  },
+): Promise<boolean> {
+  const db = getClient();
+  if (!db) {
+    console.log('[correction:tissue]', JSON.stringify({ id, ...fields }));
+    return false;
+  }
+  try {
+    const { error } = await db.from('segmentation_corrections').update(fields).eq('id', id);
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    console.warn('Supabase correction update failed — falling back to log output.', error);
+    console.log('[correction:tissue]', JSON.stringify({ id, ...fields }));
+    return false;
   }
 }

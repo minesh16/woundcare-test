@@ -7,8 +7,9 @@ import { DisclaimerFooter } from '@/components/DisclaimerFooter';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { ProgressHeader } from '@/components/ProgressHeader';
 import { ASSESSMENT_V2 } from '@/config/featureFlags';
-import { analyzeWoundImage } from '@/cv/opencvPipeline';
-import { segmentWoundUri, SegmentResult } from '@/cv/segment';
+import { segmentRemote, type SegmentResponse } from '@/assessment/client';
+import { analyzeWoundBase64, uriToBase64 } from '@/cv/opencvPipeline';
+import { toBoundaryProposal } from '@/assessment/proposal';
 import { formatArea } from '@/cv/measureArea';
 import { AppColors } from '@/constants/appTheme';
 import { TISSUE_CLASS_CLINICAL, TISSUE_CLASS_PLAIN } from '@/copy/plainLanguage';
@@ -19,18 +20,20 @@ import { useSessionStore } from '@/store/sessionStore';
  * toggle. The default reading experience says "the outline we detected"; which
  * network drew it is a debugging fact, not a clinical one.
  */
-const BOUNDARY_SOURCE: Record<NonNullable<SegmentResult['provider']>, string> = {
+const BOUNDARY_SOURCE: Record<NonNullable<SegmentResponse['source']>, string> = {
   sam3: 'general model, prompted for a wound',
   fusegnet: 'wound-specific model',
+  hsv: 'colour estimate (no model answered)',
 };
 
 export default function AnalyzeScreen() {
   const session = useSessionStore((state) => state.session);
   const setCvResult = useSessionStore((state) => state.setCvResult);
   const setBoundaryProposal = useSessionStore((state) => state.setBoundaryProposal);
+  const setImageBase64 = useSessionStore((state) => state.setImageBase64);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [segment, setSegment] = useState<SegmentResult | null>(null);
+  const [segment, setSegment] = useState<SegmentResponse | null>(null);
   const [technical, setTechnical] = useState(false);
 
   useEffect(() => {
@@ -44,32 +47,31 @@ export default function AnalyzeScreen() {
     (async () => {
       try {
         setLoading(true);
-        const result = await analyzeWoundImage(session.imageUri!, session.includeCoinReference);
-        if (!cancelled) {
-          setCvResult(result);
+        // Encode ONCE: every later call sends these exact bytes, and the
+        // clinician's approval is bound to their hash.
+        const base64 = await uriToBase64(session.imageUri!);
+        if (cancelled) return;
+        setImageBase64(base64);
+
+        // The colour pass: capture quality gate (and the legacy measurement
+        // when assessmentV2 is off).
+        const result = await analyzeWoundBase64(base64, session.includeCoinReference);
+        if (!cancelled) setCvResult(result);
+
+        if (!ASSESSMENT_V2) return;
+        // The draft outline. The location decides whether FUSegNet gives a
+        // second opinion (foot wounds). No colour centroid is sent any more:
+        // when it was wrong, so was the outline (spec §3.2).
+        const seg = await segmentRemote({ base64, bodyZone: session.bodyZone, assessmentId: session.id });
+        if (cancelled) return;
+        if (!seg.ok) {
+          setError(`The outline could not be drafted: ${seg.error}`);
+          setBoundaryProposal(null);
+          return;
         }
-        // Additive assessmentV2 pass: model boundary seeded by the HSV centroid.
-        // No-op unless the flag is on and the endpoint is configured.
-        const seg = await segmentWoundUri(session.imageUri!, result.hsvCentroid);
-        if (!cancelled && seg) {
-          setSegment(seg);
-          // Carry the proposal onto the session so the review screen can act on
-          // it: a mask held only in this component's state could not be reviewed
-          // after navigating away.
-          setBoundaryProposal({
-            maskUrl: seg.mask,
-            provider: seg.provider,
-            model: seg.model ?? null,
-            outline: seg.outline ?? null,
-            areaPx: seg.selection?.areaPx ?? null,
-            areaPct:
-              seg.selection && seg.selection.totalPx > 0
-                ? Number(((100 * seg.selection.areaPx) / seg.selection.totalPx).toFixed(2))
-                : null,
-            multipleRegions: seg.multipleRegions ?? null,
-            confidence: seg.confidence,
-          });
-        }
+        setSegment(seg.data);
+        // On the session, so the review screen can act on it.
+        setBoundaryProposal(toBoundaryProposal(seg.data));
       } catch (analysisError) {
         if (!cancelled) {
           setError(analysisError instanceof Error ? analysisError.message : 'Analysis failed.');
@@ -84,22 +86,27 @@ export default function AnalyzeScreen() {
     return () => {
       cancelled = true;
     };
-  }, [session.imageUri, session.includeCoinReference, setBoundaryProposal, setCvResult]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.imageUri, session.includeCoinReference]);
 
   const cv = session.cv;
 
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
-        <ProgressHeader step={1} title="Your photo" />
+        <ProgressHeader step={3} title="Your photo" />
 
         {session.imageUri ? (
           <View style={styles.imageWrap}>
             <Image
               source={{
-                uri: cv?.overlayBase64
-                  ? `data:image/jpeg;base64,${cv.overlayBase64}`
-                  : session.imageUri,
+                // The HSV contour is the legacy flow's outline. Under assessmentV2
+                // it is only a quality gate and can trace the whole limb, so it is
+                // not drawn beside the model's proposed wound edge.
+                uri:
+                  !ASSESSMENT_V2 && cv?.overlayBase64
+                    ? `data:image/jpeg;base64,${cv.overlayBase64}`
+                    : session.imageUri,
               }}
               style={styles.image}
               contentFit="cover"
@@ -134,27 +141,43 @@ export default function AnalyzeScreen() {
 
         {cv ? (
           <View style={styles.metricsCard}>
-            <Text style={styles.metricTitle}>What the wound bed is made of</Text>
-            <MetricBar label={TISSUE_CLASS_PLAIN.granulation} value={cv.granulationPercent} color="#D64545" />
-            <MetricBar label={TISSUE_CLASS_PLAIN.slough} value={cv.sloughPercent} color="#E8B923" />
-            <MetricBar label={TISSUE_CLASS_PLAIN.necrosis} value={cv.necrosisPercent} color="#4A3728" />
-            <MetricBar label={TISSUE_CLASS_PLAIN.epithelial} value={cv.epithelialPercent} color="#F4A9B8" />
-            <MetricBar label={TISSUE_CLASS_PLAIN.other} value={cv.otherPercent} color="#94A3B8" />
+            {ASSESSMENT_V2 ? (
+              // Nothing is measured before the outline is approved (spec §3.3).
+              // This screen's colour pass is a quality gate: its mask can cover
+              // the whole limb, and skin then reads as slough — so its numbers
+              // are not shown as a measurement of the wound.
+              <>
+                <Text style={styles.metricTitle}>Next: check the outline</Text>
+                <Text style={styles.detail}>
+                  Tissue and size are measured inside the outline once you have checked it, using the
+                  coin for scale.
+                </Text>
+              </>
+            ) : (
+              <>
+                <Text style={styles.metricTitle}>What the wound bed is made of</Text>
+                <MetricBar label={TISSUE_CLASS_PLAIN.granulation} value={cv.granulationPercent} color="#D64545" />
+                <MetricBar label={TISSUE_CLASS_PLAIN.slough} value={cv.sloughPercent} color="#E8B923" />
+                <MetricBar label={TISSUE_CLASS_PLAIN.necrosis} value={cv.necrosisPercent} color="#4A3728" />
+                <MetricBar label={TISSUE_CLASS_PLAIN.epithelial} value={cv.epithelialPercent} color="#F4A9B8" />
+                <MetricBar label={TISSUE_CLASS_PLAIN.other} value={cv.otherPercent} color="#94A3B8" />
 
-            <Text style={styles.detail}>
-              {cv.areaCm2
-                ? `Size: about ${cv.areaCm2.toFixed(1)} square centimetres.`
-                : 'Size: we could not measure this — there was no size reference in the photo.'}
-            </Text>
-            {cv.periwound ? (
-              <Text style={styles.detail}>
-                Skin around the wound: {cv.periwound.rednessPct}% looks red
-                {cv.periwound.maceration ? ', and it looks waterlogged' : ''}.
-              </Text>
-            ) : null}
-            <Text style={styles.detail}>
-              How deep the wound is cannot be judged from a photo, so it is not included here.
-            </Text>
+                <Text style={styles.detail}>
+                  {cv.areaCm2
+                    ? `Size: about ${cv.areaCm2.toFixed(1)} square centimetres.`
+                    : 'Size: we could not measure this — there was no size reference in the photo.'}
+                </Text>
+                {cv.periwound ? (
+                  <Text style={styles.detail}>
+                    Skin around the wound: {cv.periwound.rednessPct}% looks red
+                    {cv.periwound.maceration ? ', and it looks waterlogged' : ''}.
+                  </Text>
+                ) : null}
+                <Text style={styles.detail}>
+                  How deep the wound is cannot be judged from a photo, so it is not included here.
+                </Text>
+              </>
+            )}
 
             <Pressable
               onPress={() => setTechnical((v) => !v)}
@@ -166,6 +189,9 @@ export default function AnalyzeScreen() {
 
             {technical ? (
               <View style={styles.technicalBlock}>
+                {ASSESSMENT_V2 ? (
+                  <Text style={styles.detail}>On-device colour pass (quality gate only, not the measurement):</Text>
+                ) : null}
                 <Text style={styles.detail}>
                   {TISSUE_CLASS_CLINICAL.granulation} {cv.granulationPercent}% ·{' '}
                   {TISSUE_CLASS_CLINICAL.slough} {cv.sloughPercent}% · {TISSUE_CLASS_CLINICAL.necrosis}{' '}
@@ -190,14 +216,16 @@ export default function AnalyzeScreen() {
                     : 'Fallback (demo)'}
                 </Text>
                 <Text style={styles.detail}>Confidence: {cv.confidence}</Text>
-                {segment?.provider ? (
+                {segment?.source ? (
                   <Text style={styles.detail}>
-                    Outline: {BOUNDARY_SOURCE[segment.provider]} ({segment.model ?? segment.provider}) —{' '}
-                    {segment.masks.length} region{segment.masks.length === 1 ? '' : 's'}
-                    {segment.selection
-                      ? `, wound region picked (${segment.selection.areaPx.toLocaleString()} px)`
-                      : ''}{' '}
-                    ({segment.confidence})
+                    Outline: {BOUNDARY_SOURCE[segment.source]} ({segment.model ?? segment.source}) —{' '}
+                    {segment.candidates} candidate{segment.candidates === 1 ? '' : 's'}
+                    {segment.score != null ? `, score ${segment.score.toFixed(2)}` : ''} ({segment.confidence})
+                    {segment.secondOpinion?.status === 'ok'
+                      ? ` · FUSegNet agreement IoU ${segment.secondOpinion.agreementIoU ?? '—'}`
+                      : segment.secondOpinion?.status === 'unavailable'
+                        ? ' · FUSegNet unavailable'
+                        : ''}
                   </Text>
                 ) : null}
                 {segment?.attempts?.some((attempt) => attempt.status !== 'ok') ? (
@@ -225,12 +253,12 @@ export default function AnalyzeScreen() {
 
       <View style={styles.footer}>
         <PrimaryButton
-          label={ASSESSMENT_V2 ? 'Check the outline' : 'Continue to location'}
+          label={ASSESSMENT_V2 ? 'Check the outline' : 'Continue to questions'}
           disabled={!cv || loading}
           // With assessmentV2 on, the boundary goes to a clinician before anything
           // is measured inside it. With it off, the old route is unchanged —
           // additive, never destructive.
-          onPress={() => router.push(ASSESSMENT_V2 ? '/review' : '/location')}
+          onPress={() => router.push(ASSESSMENT_V2 ? '/review' : '/questions')}
         />
         <DisclaimerFooter />
       </View>

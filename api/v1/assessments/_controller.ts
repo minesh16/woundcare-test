@@ -1,5 +1,5 @@
 import { evaluate } from '../../../src/decision/engine';
-import type { EngineInputs } from '../../../src/decision/engine.types';
+import type { EngineInputs, EngineResult } from '../../../src/decision/engine.types';
 import type {
   AssessmentState,
   BoundaryApprovalName,
@@ -7,7 +7,9 @@ import type {
   StepOutcome,
   StepName,
 } from '../../../src/assessment/state';
-import { isSegmentationConfigured, logSegmentation, runSegmentation } from '../../_segmentation';
+import type { ApprovalRecord } from '../../_apiStore';
+import { cropsFromMask } from '../../_crops';
+import { loadMaskPixels } from '../../_maskIO';
 import { analyzeTissue } from './tissue';
 import { extractVlmFeatures } from './vlm-features';
 import { composeReport } from './report';
@@ -36,25 +38,30 @@ export type RunInput = {
   areaCm2?: number | null;
   bodyZoneLabel?: string | null;
   /**
-   * A boundary a clinician has already reviewed on the review step.
-   *
-   * When present the segmentation chain is **not run**. That is the point: the
-   * clinician looked at this exact mask and approved, adjusted or drew it, so
-   * re-segmenting would silently measure tissue inside a *different* boundary
-   * from the one a human signed off — and the audit record would name an approval
-   * that did not apply to the mask used.
+   * The approved mask, and the approval it was signed off under (POST /approve).
+   * There is no path through `run` without one (segmentation spec §6A.1: "must
+   * pause for /approve — no auto-approval"): the chain is never re-run here,
+   * because re-segmenting would measure inside a different boundary from the
+   * one a human signed off, and the audit record would name an approval that
+   * did not apply to the mask used.
    */
-  approvedBoundary?: {
-    maskUrl: string;
-    approval: BoundaryApprovalName;
-    /** The model that proposed it, or null when the clinician drew it from scratch. */
-    provider?: SegmentationProviderName | null;
-    model?: string | null;
-    outlinePoints?: number | null;
-  } | null;
+  mask: string;
+  approval: ApprovalRecord;
 };
 
 export type StepEmitter = (outcome: StepOutcome) => void;
+
+/**
+ * Called once, the moment the engine has decided — before the report is
+ * written. The report LLM can take minutes; the decision cannot wait for it, or
+ * the screen shows nothing (or a different, on-device result) in the meantime.
+ */
+export type DecisionEmitter = (decision: {
+  result: EngineResult;
+  engineInputs: EngineInputs;
+  tissue: AssessmentState['tissue'];
+  vlm: AssessmentState['vlm'];
+}) => void;
 
 async function timed<T>(
   step: StepName,
@@ -73,100 +80,50 @@ async function timed<T>(
   }
 }
 
-export async function runAssessment(input: RunInput, emit: StepEmitter): Promise<AssessmentState> {
+export async function runAssessment(
+  input: RunInput,
+  emit: StepEmitter,
+  onDecision?: DecisionEmitter,
+): Promise<AssessmentState> {
   const state: AssessmentState = { ...input.state, steps: [] };
   const record: StepEmitter = (outcome) => {
     state.steps = [...(state.steps ?? []), outcome];
     emit(outcome);
   };
 
-  // --- 1. Segment -----------------------------------------------------------
-  // The provider chain (SAM 3 → FUSegNet) lives in `_segmentation.ts`,
-  // which never throws: a dead backend becomes a recorded attempt and the next
-  // provider is tried. The orchestrator's job here is only to decide whether the
-  // step counts as `ok` or `degraded`, and to carry the attempts into the record.
-  //
-  // Unless a clinician has already reviewed a boundary, in which case there is
-  // nothing to decide and nothing to re-run — see `RunInput.approvedBoundary`.
-  const approved = input.approvedBoundary ?? null;
-
-  const segment = await timed('segment', record, async () => {
-    if (approved) {
-      return {
-        value: null,
-        status: 'ok' as const,
-        summary:
-          approved.approval === 'drawn'
-            ? 'Using the boundary the clinician drew.'
-            : approved.approval === 'adjusted'
-              ? 'Using the clinician-adjusted boundary.'
-              : 'Using the boundary the clinician approved.',
-      };
-    }
-    if (!isSegmentationConfigured()) {
-      return {
-        value: null,
-        status: 'degraded' as const,
-        summary: 'No boundary model configured — using the on-device boundary instead.',
-      };
-    }
-
-    const outcome = await runSegmentation({
-      imageDataUrl: input.base64.startsWith('data:') ? input.base64 : `data:image/jpeg;base64,${input.base64}`,
-      point: input.state.cv?.hsvCentroid ?? null,
-    });
-    logSegmentation(outcome, { assessmentId: state.id });
-
-    if (!outcome.provider || !outcome.mask) {
-      return {
-        value: null,
-        status: 'degraded' as const,
-        summary: `${outcome.reason ?? 'Boundary detection unavailable'} — using the on-device boundary.`,
-      };
-    }
-
-    // A fallback that worked is still a fallback: say which provider answered
-    // and how many had to be tried, so a quietly degrading chain is visible in
-    // the progress stream rather than only in the audit log.
-    const fellBack = outcome.attempts.filter((a) => a.status !== 'ok').length;
-    return {
-      value: outcome,
-      status: 'ok' as const,
-      summary: fellBack
-        ? `Wound boundary found by ${outcome.provider} (after ${fellBack} other provider${fellBack === 1 ? '' : 's'}).`
-        : `Wound boundary found by ${outcome.provider}.`,
-    };
-  });
-
-  state.segment = approved
-    ? {
-        // A hand-drawn boundary has no model behind it, so it is attributed to
-        // the clinician rather than to a provider that did not produce it.
-        source: approved.provider ?? 'clinician',
-        maskUrl: approved.maskUrl,
-        // A reviewed boundary is the highest confidence this pipeline can report:
-        // a human looked at this exact mask.
-        confidence: 'high',
-        model: approved.model ?? undefined,
-        approval: approved.approval,
-        outlinePoints: approved.outlinePoints ?? undefined,
-      }
-    : segment
-      ? {
-          source: segment.provider ?? 'unavailable',
-          maskUrl: segment.mask,
-          confidence: segment.confidence,
-          model: segment.model ?? undefined,
-          promptMode: segment.promptMode ?? undefined,
-        }
-      : { source: 'unavailable', maskUrl: null, confidence: 'low' };
+  // --- 1. Segment: the approved boundary, never a re-run ------------------
+  const approved = input.approval;
+  await timed('segment', record, async () => ({
+    value: null,
+    status: 'ok' as const,
+    summary:
+      approved.approval === 'drawn'
+        ? 'Using the boundary the clinician drew.'
+        : approved.approval === 'adjusted'
+          ? 'Using the clinician-adjusted boundary.'
+          : 'Using the boundary the clinician approved.',
+  }));
+  state.segment = {
+    // A hand-drawn boundary has no model behind it, so it is attributed to the
+    // clinician rather than to a provider that did not produce it.
+    source:
+      approved.provider === 'sam3' || approved.provider === 'fusegnet'
+        ? (approved.provider as SegmentationProviderName)
+        : 'clinician',
+    maskUrl: null, // the mask itself is not stored in the record
+    // A reviewed boundary is the highest confidence this pipeline can report.
+    confidence: 'high',
+    model: approved.model ?? undefined,
+    approval: approved.approval as BoundaryApprovalName,
+    approvalId: approved.id,
+  };
 
   // --- 2. Tissue ------------------------------------------------------------
   const tissue = await timed('tissue', record, async () => {
     const result = await analyzeTissue({
       base64: input.base64,
-      mask: approved?.maskUrl ?? segment?.mask ?? null,
-      maskProvider: approved ? (approved.provider ?? null) : (segment?.provider ?? null),
+      mask: input.mask,
+      maskProvider: approved.provider === 'sam3' || approved.provider === 'fusegnet' ? approved.provider : null,
       pxPerCm: input.pxPerCm ?? null,
     });
     return {
@@ -181,8 +138,13 @@ export async function runAssessment(input: RunInput, emit: StepEmitter): Promise
 
   // --- 3. Caged VLM ---------------------------------------------------------
   const vlm = await timed('vlm', record, async () => {
+    // Crops of the wound bed and the skin around it, from the APPROVED mask.
+    const maskPixels = await loadMaskPixels(input.mask);
+    const crops = maskPixels ? cropsFromMask(input.base64, maskPixels) : null;
     const result = await extractVlmFeatures({
       base64: input.base64,
+      woundCrop: crops?.wound ?? null,
+      periwoundCrop: crops?.periwound ?? null,
       tissueSummary: tissue.tissue ?? undefined,
     });
     return {
@@ -229,6 +191,7 @@ export async function runAssessment(input: RunInput, emit: StepEmitter): Promise
     };
   });
   state.result = result;
+  onDecision?.({ result, engineInputs: inputs, tissue: state.tissue ?? null, vlm: state.vlm ?? null });
 
   // --- 5. Report ------------------------------------------------------------
   const report = await timed('report', record, async () => {

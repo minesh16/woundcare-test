@@ -62,6 +62,8 @@ export type SegmentSummary = {
   approval?: BoundaryApprovalName;
   /** Points in the clinician's polygon, when they adjusted or drew one. */
   outlinePoints?: number;
+  /** The approval (POST /approve) this boundary was signed off under. */
+  approvalId?: string;
 };
 
 export type TissueSummary = {
@@ -80,6 +82,66 @@ export type TissueSummary = {
   maskProvider?: SegmentationProviderName | null;
   maskAreaPx: number;
   periwound: { rednessPct: number; macerationPct: number; maceration: boolean } | null;
+};
+
+/**
+ * The size reference found in the photo — today only a 20c coin.
+ *
+ * Fractional coordinates (of the analysis frame) so the UI can circle it on the
+ * photo: a scale nobody can see is a scale nobody can catch being wrong, and a
+ * wrong scale is worse than none (it does not withhold the pathway).
+ */
+export type ScaleReference = {
+  kind: 'coin';
+  xPct: number;
+  yPct: number;
+  /** Radius as a fraction of the frame's width. */
+  rPct: number;
+  /** Share of the coin's rim on a real edge (0–1) — how coin-like the circle is. */
+  support: number;
+  pxPerCm: number;
+};
+
+/** Size of the approved outline. Every cm value is null without a scale. */
+export type WoundGeometry = {
+  areaPx: number;
+  areaCm2: number | null;
+  /** Long side of the minimum-area rotated rectangle around the wound. */
+  lengthCm: number | null;
+  /** Short side of that rectangle. */
+  widthCm: number | null;
+  perimeterCm: number | null;
+};
+
+/** White balance from a printed white reference patch (segmentation spec §5). */
+export type WhiteBalance =
+  | { applied: true; gains: { r: number; g: number; b: number }; patch: { xPct: number; yPct: number; wPct: number; hPct: number } }
+  | { applied: false; reason: 'no_marker' };
+
+/** Tissue % by both classifiers, for the side-by-side comparison (spec §5). */
+export type TissuePercentages = {
+  granulation: number;
+  slough: number;
+  necrotic: number;
+  epithelial: number;
+  other: number;
+};
+
+/** What `/api/v1/assessments/measure` adds on top of the tissue measurement. */
+export type MeasurementResult = {
+  /** The analysis frame the pixel values refer to. */
+  frame: { width: number; height: number };
+  scale: ScaleReference | null;
+  /** Why there is no scale, when there is none. */
+  scaleReason?: string;
+  geometry: WoundGeometry;
+  whiteBalance: WhiteBalance;
+  /** `no_marker`: no white reference, so colours were not corrected and tissue confidence is capped. */
+  flags: ('no_marker')[];
+  /** Which classifier produced `tissue` — `relative` only when TISSUE_RELATIVE=1. */
+  classifier: 'absolute' | 'relative';
+  /** Both classifiers' results, so they can be compared on real photos. */
+  comparison: { absolute: TissuePercentages; relative: TissuePercentages | null };
 };
 
 export type ReportPair = {
@@ -107,10 +169,13 @@ export type AssessmentState = {
   vlmModel?: string | null;
   engineInputs?: EngineInputs | null;
   result?: EngineResult | null;
+  /** SHA-256 of the photo — the record's link to an image it does not store. */
+  imageSha256?: string | null;
   report?: ReportPair | null;
   steps?: StepOutcome[];
 };
 
+/** A server-minted, unguessable id (docs/SECURITY_AUDIT.md MW-06). */
 export function newAssessmentId(): string {
-  return `asmt-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  return `asmt-${globalThis.crypto.randomUUID()}`;
 }

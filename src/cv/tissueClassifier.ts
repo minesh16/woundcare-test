@@ -138,3 +138,98 @@ export function classifyPeriwoundPixel(r: number, g: number, b: number): Periwou
 
   return 'normal';
 }
+
+// ===========================================================================
+// Periwound-relative classification (segmentation spec §5, behind TISSUE_RELATIVE)
+//
+// The absolute HSV thresholds read tanned or pigmented skin as slough — the
+// demo leg's own skin did exactly that inside the HSV mask. Comparing each
+// wound-bed pixel with THIS patient's surrounding skin removes that failure
+// mode: a pixel indistinguishable from the periwound skin is not tissue, it is
+// skin the outline happened to include. Everything else is classified by the
+// absolute thresholds as before.
+// ===========================================================================
+
+export type Lab = { L: number; a: number; b: number };
+
+function srgbToLinear(c: number): number {
+  const v = c / 255;
+  return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+}
+
+/** sRGB (0–255) → CIELAB (D65). */
+export function rgbToLab(r: number, g: number, b: number): Lab {
+  const R = srgbToLinear(r);
+  const G = srgbToLinear(g);
+  const B = srgbToLinear(b);
+  const x = (0.4124 * R + 0.3576 * G + 0.1805 * B) / 0.95047;
+  const y = 0.2126 * R + 0.7152 * G + 0.0722 * B;
+  const z = (0.0193 * R + 0.1192 * G + 0.9505 * B) / 1.08883;
+  const f = (t: number) => (t > 216 / 24389 ? Math.cbrt(t) : (841 / 108) * t + 4 / 29);
+  const fx = f(x);
+  const fy = f(y);
+  const fz = f(z);
+  return { L: 116 * fy - 16, a: 500 * (fx - fy), b: 200 * (fy - fz) };
+}
+
+/** CIE76 colour difference. */
+export function deltaE(p: Lab, q: Lab): number {
+  return Math.hypot(p.L - q.L, p.a - q.a, p.b - q.b);
+}
+
+/** Median Lab of the masked pixels — the patient's own skin colour. Null when empty. */
+export function medianLab(buffer: Uint8Array, channels: number, mask: Uint8Array): Lab | null {
+  const Ls: number[] = [];
+  const as: number[] = [];
+  const bs: number[] = [];
+  const pixels = buffer.length / channels;
+  // Every 4th pixel is plenty for a median and keeps this cheap.
+  for (let i = 0; i < pixels; i += 4) {
+    if (!mask[i]) continue;
+    const o = i * channels;
+    const lab = rgbToLab(buffer[o], buffer[o + 1], buffer[o + 2]);
+    Ls.push(lab.L);
+    as.push(lab.a);
+    bs.push(lab.b);
+  }
+  if (Ls.length === 0) return null;
+  const median = (v: number[]) => {
+    v.sort((x, y) => x - y);
+    return v[Math.floor(v.length / 2)];
+  };
+  return { L: median(Ls), a: median(as), b: median(bs) };
+}
+
+/** ΔE below which a pixel is treated as the surrounding skin, not tissue. */
+export const SKIN_DELTA_E = 12;
+
+export function classifyPixelRelative(r: number, g: number, b: number, skin: Lab): keyof TissueBreakdown {
+  if (deltaE(rgbToLab(r, g, b), skin) < SKIN_DELTA_E) return 'other';
+  return classifyPixel(r, g, b);
+}
+
+export function breakdownFromBufferRelative(
+  buffer: Uint8Array,
+  channels: number,
+  woundMask: Uint8Array,
+  skin: Lab,
+): TissueBreakdown {
+  const counts: TissueBreakdown = { granulation: 0, slough: 0, necrosis: 0, epithelial: 0, other: 0 };
+  const pixelCount = buffer.length / channels;
+  let considered = 0;
+  for (let i = 0; i < pixelCount; i += 1) {
+    if (woundMask[i] === 0) continue;
+    const o = i * channels;
+    counts[classifyPixelRelative(buffer[o], buffer[o + 1], buffer[o + 2], skin)] += 1;
+    considered += 1;
+  }
+  if (considered === 0) return { granulation: 20, slough: 20, necrosis: 20, epithelial: 20, other: 20 };
+  const pct = (n: number) => Math.round((n / considered) * 100);
+  return {
+    granulation: pct(counts.granulation),
+    slough: pct(counts.slough),
+    necrosis: pct(counts.necrosis),
+    epithelial: pct(counts.epithelial),
+    other: pct(counts.other),
+  };
+}

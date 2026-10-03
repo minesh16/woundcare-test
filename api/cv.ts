@@ -34,6 +34,13 @@ export interface CvMoments {
   m01: number;
 }
 
+/** `cv.minAreaRect` result — the rotated bounding box of a contour. */
+export interface CvRotatedRect {
+  center: { x: number; y: number };
+  size: CvSize;
+  angle: number;
+}
+
 export interface CvScalar {
   readonly __scalar: unique symbol;
 }
@@ -62,12 +69,16 @@ export interface Cv {
   bitwise_or(src1: CvMat, src2: CvMat, dst: CvMat): void;
   morphologyEx(src: CvMat, dst: CvMat, op: number, kernel: CvMat): void;
   dilate(src: CvMat, dst: CvMat, kernel: CvMat): void;
+  erode(src: CvMat, dst: CvMat, kernel: CvMat): void;
   subtract(src1: CvMat, src2: CvMat, dst: CvMat): void;
   getStructuringElement(shape: number, ksize: CvSize): CvMat;
   findContours(image: CvMat, contours: CvMatVector, hierarchy: CvMat, mode: number, method: number): void;
   drawContours(image: CvMat, contours: CvMatVector, contourIdx: number, color: CvScalar, thickness?: number, lineType?: number): void;
   contourArea(contour: CvMat): number;
   moments(array: CvMat, binaryImage?: boolean): CvMoments;
+  Canny(image: CvMat, edges: CvMat, threshold1: number, threshold2: number): void;
+  minAreaRect(points: CvMat): CvRotatedRect;
+  arcLength(curve: CvMat, closed: boolean): number;
   HoughCircles(
     image: CvMat,
     circles: CvMat,

@@ -1,6 +1,5 @@
 import { generateObject } from 'ai';
 import { z } from 'zod';
-import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 import { REPORT_TERM_MAP } from '../../../src/copy/plainLanguage';
 import { renderTemplateReport, type ReportFacts } from '../../../src/assessment/reportTemplate';
@@ -8,6 +7,8 @@ import { buildReportSystemPrompt } from '../../../src/assessment/reportPrompt';
 import type { EngineResult } from '../../../src/decision/engine.types';
 import type { ReportPair } from '../../../src/assessment/state';
 import { violatesCage } from '../../../src/decision/reportCage';
+import { reportInput } from '../../_contracts';
+import { endpoint } from '../../_http';
 import { callGateway } from './_gateway';
 
 /**
@@ -106,16 +107,28 @@ export async function composeReport(body: ReportRequest): Promise<ReportPair & {
   return { ...outcome.value, source: 'llm', model: outcome.model };
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
-  if (req.method !== 'POST') {
-    res.status(405).json({ error: 'Method not allowed' });
-    return;
-  }
-
-  const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body ?? {};
-  try {
-    res.status(200).json(await composeReport(body));
-  } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : 'Report failed.' });
-  }
-}
+/**
+ * POST /api/v1/assessments/report — narrative from already-decided facts,
+ * cage-checked, with the deterministic template as the fallback.
+ */
+export default endpoint({
+  name: 'report',
+  scope: 'report',
+  input: reportInput,
+  heavy: true,
+  handle: async (input) => {
+    const report = await composeReport({
+      result: input.result as unknown as EngineResult,
+      areaCm2: input.area_cm2 ?? null,
+      bodyZoneLabel: input.body_zone_label ?? null,
+      tissuePct: input.tissue_pct ?? null,
+    });
+    return {
+      body: report,
+      degraded: report.source !== 'llm',
+      reason: report.source !== 'llm' ? 'Written from the standard template.' : undefined,
+      models: { llm: report.model ?? null },
+      outcome: { source: report.source },
+    };
+  },
+});

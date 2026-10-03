@@ -192,7 +192,8 @@ if (!store.isStoreConfigured()) {
 
   const audit = store.buildAuditRecord(state, { tissue: { necrosis: 0, slough: 20, granulation: 70, epithelial: 5, other: 5 } }, result);
   await store.writeAudit(audit);
-  check('the audit record has a stable input hash', /^[0-9a-f]{8}$/.test(audit.inputsHash), audit.inputsHash);
+  // SHA-256 over canonical JSON since MW-05 (was an 8-char FNV that dropped nested fields).
+  check('the audit record has a SHA-256 input hash', /^[0-9a-f]{64}$/.test(audit.inputsHash), audit.inputsHash);
   check('the audit record names the model that produced the VLM features', audit.models.vlm === vlm.model, audit.models);
   check('the audit record names the report model', audit.models.llm === report.model, audit.models);
   console.log(`       audit: pathway ${audit.cwcsPathwayId}, rules ${audit.rulesVersion}, hash ${audit.inputsHash}`);

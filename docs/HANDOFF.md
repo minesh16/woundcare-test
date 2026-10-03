@@ -600,6 +600,183 @@ still what the screen states today.
 
 ---
 
+## DONE — measure the approved outline; one result on screen (3 Oct 2026)
+
+**The bug this fixes.** On the demo leg ulcer with a 20c coin, the result screen said
+"7% granulation / 77% slough / no size reference" while the server, inside the approved SAM 3
+outline, measured 82% granulation / 17% slough. Three independent causes:
+
+| cause | where | fix |
+|---|---|---|
+| The screen's decision came from the on-device HSV pass, whose mask covered the **whole leg + coin**; skin falls in the slough hue band | `result.tsx` → `assess(session)` → `session.cv` | Everything reads `measuredView(session)` (`src/assessment/measured.ts`): the approved outline's measurement when it exists, HSV only in the legacy flow. The screen renders the **server's** engine result (the one the audit row records) |
+| The coin was only searched for when the capture switch was on, and it defaulted to off | `capture.tsx` | Default on |
+| With the switch on, `HoughCircles`' **first** circle was taken — a phantom centred on the wound at 2× the coin's radius: 84.5 px/cm vs a true 42.1, so area ~4× too big at "high" confidence | `api/analyze.ts` | `api/_coin.ts`: radius bounds, reject circles touching the approved outline, require ≥ 0.6 rim edge support (coin 0.96, every phantom ≤ 0.44) |
+
+Found on the way and fixed: **the outline editor's canvas was square** while a portrait photo was
+`contain`-fitted inside it, so tapped points (fractions of the canvas) and model outlines
+(fractions of the image) disagreed — an unchanged "Adjust → Save" grew the wound from 2.85% to
+5.92% of the frame. The canvas now takes the photo's aspect ratio (`expo-image` `onLoad`); the same
+action now gives 2.71% (IoU 0.96 with the model's mask).
+
+### Flow now
+```
+review: Approve/Adjust/Draw → POST /measure (tissue %, coin, area/length/width/perimeter inside
+        the outline) → POST /correction (one row, server-computed IoU) → location → questions
+result: check  — "What was measured" (outline + the coin circled; "That is not the coin")
+                 + tissue confirm (§4.3) — no pathway shown yet
+        deciding — /run with approvedBoundary + tissueOverride; new SSE `decision` event at ~19 s
+        decided  — server engine result rendered; report follows (~60–110 s); on-device engine
+                   only if the server is unreachable, and the screen says so
+```
+
+### Files
+- `api/_coin.ts` (import-free) — coin choice. `api/_measure.ts` — `detectCoin`, `measureMaskGeometry`
+  (`minAreaRect` length/width, `arcLength` perimeter, cm via the coin).
+- `api/v1/assessments/measure.ts` — requires an approved mask; never falls back to HSV (422).
+  `analyzeTissue({ measure: true })` does the work so tissue and size share one decode and one grid.
+- `api/v1/assessments/correction.ts` + `supabase/migrations/0002_segmentation_corrections.sql`
+  (**applied**). Insert-only for anon; reads via `segmentation_correction_stats()` (security
+  definer, aggregates only). Mask PNGs stored only for `public_dataset`/`synthetic` — enforced in
+  code (`mayStoreMasks`) **and** by a CHECK constraint. `session.imageSource` defaults to
+  `consented_demo` (no masks kept); there is no UI to change it yet.
+- Engine: `EngineInputs.tissueOverride` + `applyTissueOverride`; a confirmation also resolves the
+  `tissue_conflict` gate. Rules version → **`cwcs-2024.1+recon.2`**.
+- SAM 3 confidence bands per spec §3.1: ≥ 0.80 high, ≥ 0.50 medium, else low (was: ≥ 0.5 high).
+- `compare.tsx` now runs the grounded arm on the approved outline with the same inputs.
+- `npm run db:migrate` applies every file in `supabase/migrations/` in order.
+
+### Verified
+- `npm test`: 107 + 15 + 4 + 2 + 125 + 55 + 23 (new `test:measure`) = **331 passing**; typecheck
+  only the pre-existing `app-tabs.web.tsx` error.
+- Headless Chromium through `vercel dev`, the whole web flow on the demo photo: coin 42.0 px/cm,
+  **12.4 cm², 4.8 × 3.4 cm**, 82/17/0 tissue, decision at ~19 s (pathway 15, tissue confirmed as
+  slough), report at ~110 s, no console errors. A coin-less crop of the same photo: no scale, no
+  false coin.
+
+### Known issues / carry-overs
+- The tissue axis is precedence, not majority: 17% slough ⇒ slough pathway. The confirm step is
+  where a clinician overrides it; the copy no longer says "mostly".
+- The periwound band is capped (`MAX_PERIWOUND_KERNEL = 151` px), so at ~42 px/cm it is ~1.8 cm,
+  not 4 cm.
+- `hashInputs` passes `Object.keys(inputs).sort()` as a `JSON.stringify` replacer, which also
+  filters NESTED keys — most of the tissue/VLM detail never reaches the audit hash.
+- The rasterised polygon is 1024 × 1024 regardless of the photo's aspect (fine for fractional
+  resampling, but loses vertical resolution on portrait photos).
+
+---
+
+## DONE — segmentation build spec Phases 1–5 (3 Oct 2026)
+
+Spec: `WoundCare/MendWise_Segmentation_Build_Spec.md`. Flow is now
+`capture → location → analyze → review → questions → result` — location moved before analysis
+(§6.4) so it can decide whether FUSegNet gives a second opinion.
+
+### Phase 1 — SAM 3 + review
+- `/segment` (§3.2): `{ base64, prompts?: { text, points[{xPct,yPct,label}], box }, body_zone }` →
+  `{ source: sam3|fusegnet|hsv, mask, score, box, confidence, model, latencyMs, outline, frame,
+  secondOpinion, promptConflict, attempts, reason }`. `/api/segment` is an alias of the same handler.
+- SAM 3 request: every prompt on `object_id: 1`, `max_masks` 3, `include_boxes`, **`sync_mode` on**
+  (masks inline, not on fal's public CDN), 25 s timeout, image downscaled to 1024 on the LONGER edge
+  (`api/_image.ts`). The HSV centroid is no longer sent.
+- Mask choice is the spec rule (`selectByPrompts`): drop masks that miss a + or contain a −, take the
+  top score; none left → top score + `promptConflict`, confidence low. `_maskSelect.ts` is deleted
+  (mask I/O moved to `_maskIO.ts`, which also closes the SSRF, MW-04: data URIs or `*.fal.media` only).
+- No model answers → the server returns the HSV mask as `source: 'hsv'` (`_hsvMask.ts`, now one
+  implementation shared with `/api/analyze` and the tissue step) for the clinician to correct.
+- Review screen: **+ Wound / − Not wound taps and Box** re-ask SAM 3 (400 ms debounce, spinner),
+  confidence chip + source label, Undo / **Reset to AI**, **Retake photo**; **Adjust points** is now
+  drag-based (`react-native-gesture-handler`, 44 pt targets) with tap-to-move kept as the fallback.
+  Two web traps fixed on the way, both would make a drag stop after ~4 px: gestures must be created
+  once (`useMemo`, handlers via a ref), and the `<img>` must be `pointerEvents="none"` or the
+  browser's native image drag cancels the pointer stream.
+- Round-trip IoU test raised to the spec's 0.98 (passes).
+
+### Phase 2 — correction log, final-mask pipeline, inputs
+- `POST /approve` writes the correction row (server-computed IoU, areas, `boundary_changed`, edits,
+  taps, box, ms-to-approve, second-opinion fields); `POST /correction` adds the tissue confirmation
+  + Monk tone. Masks are stored only for `synthetic` / `public_dataset` (code + DB CHECK).
+  The capture screen asks where the photo is from.
+- The image model gets wound-bed and periwound **crops cut from the approved mask** (`_crops.ts`).
+- Questions: palpated warmth (replaces yes/no warmth and OVERRIDES the image's warmth), induration,
+  oedema, undermining/tunnelling (+ o'clock), depth mm, Monk tone (stratification only).
+- Engine `recon.3` (tested): dark-skin rule (Monk ≥ 7 + "no redness" → uncertain); palpated
+  warmth / induration count as infection signs; undermining → MDT referral; image
+  `deepStructuresVisible` → urgent referral (probe-to-bone family).
+
+### Phase 3 — colour
+- White balance from a printed **white reference patch** (`_whiteBalance.ts` + `detectWhitePatch`):
+  bright, card-sized, rectangular, not the wound, not the coin. Printable card:
+  `docs-site/public/reference-card.svg`. No patch → `no_marker`, tissue confidence capped at medium
+  (so a coin-only photo now reads "medium" — by design, spec §5).
+- `TISSUE_RELATIVE=1`: periwound-relative classifier (ΔE vs the patient's own skin). `/measure`
+  always returns both results under `comparison`; flag OFF by default.
+- Acceptance: fixture test (warm cast moves tissue less with WB on) **and** live on the demo photo —
+  neutral 82/17 → warm cast 77/23 → warm cast + card, gains (0.88, 0.97, 1.21), **82/17 restored**.
+- The periwound band is a true 4 cm now (was capped at ~1.8 cm) and excludes the coin.
+
+### Phase 4 — FUSegNet second opinion
+- On a SAM 3 boundary, when `FUSEGNET_TRIGGER` (`foot` default | `all`) matches the location:
+  FUSegNet runs on SAM 3's box; agreement IoU → confidence (≥ 0.8 high, 0.5–0.8 medium → review
+  shows both outlines and lets the clinician pick, < 0.5 / multiple regions / nothing kept → low →
+  review asks for a tap). Any FUSegNet failure → skipped, SAM 3 alone (mock-tested: 401, 5xx,
+  timeout). FUSegNet is still the fallback when SAM 3 fails.
+
+### Phase 5 — module API (sandbox)
+- `api/_http.ts` `endpoint()` wraps every module: API key (`x-api-key`, hashed in `api_keys`, scoped
+  per module) → production keys refused until ARTG → rate limit (per key; per key+IP for the app key;
+  heavy endpoints get ¼) → JSON + **Zod** (`_contracts.ts`, MW-12) → `Idempotency-Key` replay →
+  **approval binding** → envelope (`request_id`, `api_version`, `engine_version`, `model_versions`,
+  `regulatory_status: "investigational"`, `degraded`/`reason`) → sandbox PNG watermark → `api_calls`
+  audit row (hashes only).
+- `/measure`, `/tissue`, `/vlm-features`, `/run` require an `approval_id` bound to SHA-256 of the
+  image bytes and of the final mask's pixels → 403 `approval_required` / `approval_invalid` /
+  `approval_mismatch`. `/run` has no segmentation path left — no auto-approval.
+- The app uses the same endpoints with its own sandbox key (`EXPO_PUBLIC_MENDWISE_API_KEY` =
+  `MENDWISE_APP_KEY`; public by definition — a gate, not identity). It encodes the photo ONCE
+  (`session.imageBase64`) because approvals bind to exact bytes.
+- Also from the security audit P0: canonical SHA-256 audit hash (MW-05; old 8-char hashes are not
+  comparable), server-minted unguessable ids (MW-02, MW-06), upstream error text no longer returned
+  (MW-13), security headers in `vercel.json` (MW-08; CSP in **Report-Only** for now).
+- OpenAPI 3.1 from the Zod contracts: `GET /api/v1/openapi`, `npm run build:openapi` →
+  `docs-site/public/openapi.json` + `modules/api-reference.md` (with the not-for-clinical-use banner).
+- Mint a key: `npm run api:key -- --org=acme --scopes=segment,approve,measure`.
+- Migration **0003** (applied): `api_keys`, `approvals`, `api_rate_limits` (+ atomic RPC),
+  `idempotency_records`, `api_calls`, correction second-opinion columns. All service-role only.
+
+### Verified (3 Oct 2026)
+- `npm test` **460 passing**: rules 125, cage 17, copy 4, imports 2, segmentation 163, geometry 55,
+  measure 43, api-core 34, chain 17 (mocked fal/Modal). Typecheck: only the old `app-tabs` error.
+- `npm run check:api` (live, mints and revokes its own test keys): **43/43** — 401 without a key on
+  every module, scope and production gates, 429 + Retry-After, the `'no'`-as-boolean 400, idempotency
+  replay/conflict, envelope + watermark, `/tissue` and `/run` 403 without approval, 403 on a swapped
+  image or mask, full segment → approve → measure → tissue → correction → run, api_calls rows.
+- `npm run bench:segment` on 10 public FUSeg validation images: **p50 6.1 s** (< 8 s ✓), one positive
+  tap → mask contains it **9/9** ✓ (the 10th label is empty), mean draft IoU vs ground truth 0.63.
+- Headless Chromium, whole flow on the demo photo: tap re-segments, box re-segments (SAM 3 0.95),
+  drag moves a point exactly, approve → measure (42.0 px/cm, 12.4 cm²) → tissue confirm → decision
+  at ~25 s → report; no console errors. HSV fallback checked with both model keys unset.
+- `npm run smoke:live` (now under tsx): 14/15 — the failure is the pre-existing "two identical VLM
+  calls agree" check; the gateway models are not deterministic even at temperature 0.
+
+### Findings to act on
+- **FUSegNet reports `multiple_regions: true` on almost every FUSeg image** (it keeps a second speck
+  even inside SAM 3's box), so under the spec rule nearly every foot wound reads "low" and asks for a
+  tap. And SAM 3's tight box starves FUSegNet on small wounds (a 28 px box → it kept nothing; with
+  more context it finds the wound). Both are calibration questions for the eval set — the rule is
+  implemented as specified, not loosened.
+- SAM 3 latency spikes (one call 12 s); `vercel dev` adds compile time on first use.
+- A tap that lands inside an over-large mask satisfies the selection rule without improving it
+  (FUSeg 0177: IoU 0.10 before and after) — "− Not wound" taps or a box are what fix that case.
+
+### To deploy (not done — local only, nothing committed)
+- Vercel env (Production **and** Preview): `MENDWISE_APP_KEY`, `EXPO_PUBLIC_MENDWISE_API_KEY` (same
+  value), plus the existing `FAL_KEY`, `FUSEGNET_*`; optional `FUSEGNET_TRIGGER`, `TISSUE_RELATIVE`.
+- Migrations 0002 and 0003 are already applied to the Supabase project in `.env.local`.
+- Test rows from verification are in `segmentation_corrections`, `approvals` and `api_calls`
+  (assessment ids `scan-…`, `check-api-…`, `wb-…`); the `check-api` keys are revoked.
+
+---
+
 ## Superseded — the gap this replaced
 
 **There was no `review` screen.** `src/app/` is `index, capture, location, analyze, questions,
@@ -637,10 +814,9 @@ for the app's main flow to go through `run`, which audits properly — which is 
 
 ## NEXT — remaining Phase 3 + backlog
 
-1. **Reconcile the two engine results on `result.tsx`.** The screen states the on-device result
-   and runs the server pipeline beside it; they must not be able to disagree. Also: record *who*
-   approved a boundary, which needs MW-01 (authentication) — an approval with no approver is
-   weaker evidence than it looks.
+1. ~~Reconcile the two engine results on `result.tsx`~~ — done (see "measure the approved
+   outline" above). Still open: record *who* approved a boundary, which needs MW-01
+   (authentication) — an approval with no approver is weaker evidence than it looks.
 2. **Add `FAL_KEY`, `FUSEGNET_MODAL_URL` and `FUSEGNET_AUTH_TOKEN` to the Vercel project**
    (Production **and** Preview, server-side) and redeploy. Both providers are verified
    locally; the deployment has neither, so it is currently falling back to the on-device HSV
@@ -656,12 +832,13 @@ for the app's main flow to go through `run`, which audits properly — which is 
    against what the chain actually costs. Then consider the **SAM 3 box → FUSegNet mask**
    refinement pass the Modal endpoint's `box` parameter was built for.
 6. `wound_timeline` UI + the "<40 % area reduction in 4 weeks" trigger from real history.
-7. ArUco detection (`pxPerCmFromMarkerSide` is ready). `_maskSelect.ts` is no longer
-   load-bearing — FUSegNet returns one wound mask and SAM 3 usually returns one match — but
-   it is still the disambiguator when SAM 3 finds several, so it stays until the eval set
-   shows the chain never needs it.
+7. ArUco detection (`pxPerCmFromMarkerSide` is ready). (`_maskSelect.ts` is gone — the spec's
+   prompt-based selection replaced it.)
+9. Calibrate the second-opinion rule and SAM 3 confidence bands on the eval set (see "Findings
+   to act on" above); then flip the CSP from Report-Only to enforcing, and turn on Vercel WAF
+   rate limiting + Preview Deployment Protection (MW-03, MW-16 — platform settings, not code).
 8. La Trobe ethics clearance before any real patient imagery.
 
 ## Paste-into-Cursor prompt (Composer / agent)
 
-> You are continuing the MendWise wound-assessment app. Read `docs/MendWise_Assessment_Build_Spec.md`, `docs/HANDOFF.md` and `docs/PHASE2_PLAN.md` first, and obey the cage invariants (determinism authoritative; AI caged; additive behind `assessmentV2`; no fine-tuning). Phases 0–2 and the FUSegNet/SAM 3 segmentation chain are DONE and green — do not regress them: `npm test` must stay at 97 + 15 + 4 + 2 + 123 passing, and `npm run typecheck` must not add errors beyond the pre-existing `app-tabs.web.tsx` one. Pick up from the "NEXT" section of `HANDOFF.md`. Before writing Expo code, check the versioned docs at https://docs.expo.dev/versions/v57.0.0/ (see `AGENTS.md`). Show me a short plan before large edits.
+> You are continuing the MendWise wound-assessment app. Read `docs/MendWise_Assessment_Build_Spec.md`, `docs/HANDOFF.md` and `docs/PHASE2_PLAN.md` first, and obey the cage invariants (determinism authoritative; AI caged; additive behind `assessmentV2`; no fine-tuning). Phases 0–2 and the FUSegNet/SAM 3 segmentation chain are DONE and green — do not regress them: `npm test` must stay at 460 passing (rules 125, cage 17, copy 4, imports 2, segmentation 163, geometry 55, measure 43, api 34, chain 17), and `npm run typecheck` must not add errors beyond the pre-existing `app-tabs.web.tsx` one. Pick up from the "NEXT" section of `HANDOFF.md`. Before writing Expo code, check the versioned docs at https://docs.expo.dev/versions/v57.0.0/ (see `AGENTS.md`). Show me a short plan before large edits.

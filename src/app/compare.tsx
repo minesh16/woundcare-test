@@ -7,10 +7,10 @@ import { PrimaryButton } from '@/components/PrimaryButton';
 import { ProgressHeader } from '@/components/ProgressHeader';
 import { AppColors } from '@/constants/appTheme';
 import { ASSESSMENT_V2 } from '@/config/featureFlags';
-import { uriToBase64 } from '@/cv/opencvPipeline';
 import { baselineRemote, runAssessmentStream } from '@/assessment/client';
 import type { AssessmentState, StepOutcome } from '@/assessment/state';
-import { assess } from '@/decision/rules';
+import { measuredView } from '@/assessment/measured';
+import { toEngineInputs } from '@/decision/rules';
 import { useSessionStore } from '@/store/sessionStore';
 
 /**
@@ -47,8 +47,14 @@ export default function CompareScreen() {
     setGrounded(null);
 
     try {
-      const base64 = await uriToBase64(session.imageUri);
-      const local = assess(session);
+      const base64 = session.imageBase64;
+      const measured = measuredView(session);
+      const boundary = session.boundary;
+      if (!base64 || !boundary) {
+        setError('Approve the wound outline first — the grounded arm only runs on an approved outline.');
+        setRunning(false);
+        return;
+      }
 
       // Both arms run against the same photo, at the same time.
       const [baselineResult, groundedResult] = await Promise.all([
@@ -58,21 +64,14 @@ export default function CompareScreen() {
         runAssessmentStream(
           {
             base64,
-            inputs: {
-              tissue: {
-                necrosis: session.cv?.necrosisPercent ?? 0,
-                slough: session.cv?.sloughPercent ?? 0,
-                granulation: session.cv?.granulationPercent ?? 0,
-                epithelial: session.cv?.epithelialPercent ?? 0,
-                other: session.cv?.otherPercent ?? 0,
-              },
-              exudate: local.exudateLevel as never,
-              infection: local.infection as never,
-              markerFound: session.cv?.coinDetected,
-              cvConfidence: session.cv?.confidence,
-            },
-            pxPerCm: session.cv?.pxPerCm ?? null,
-            areaCm2: session.cv?.areaCm2 ?? null,
+            // The same inputs as the main result — the approved outline's
+            // measurement and the confirmed tissue — so the grounded arm is the
+            // assessment the clinician saw, not a re-segmented variant of it.
+            inputs: toEngineInputs(session),
+            pxPerCm: measured?.pxPerCm ?? null,
+            areaCm2: measured?.areaCm2 ?? null,
+            mask: boundary.maskUrl,
+            approvalId: boundary.approvalId,
           },
           (step) => setSteps((prev) => [...prev, step]),
         ),

@@ -1,6 +1,7 @@
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { Platform } from 'react-native';
 
+import { apiHeaders, apiUrl } from '@/assessment/client';
 import { runOpenCvPipeline } from '@/cv/opencvNative';
 import { breakdownFromBuffer, toPercentages } from '@/cv/tissueClassifier';
 import { px2ToCm2, pxPerCmFromCoinAreaPx2 } from '@/cv/measureArea';
@@ -20,13 +21,13 @@ export async function uriToBase64(uri: string): Promise<string> {
   return result.base64;
 }
 
-const ANALYZE_URL = process.env.EXPO_PUBLIC_ANALYZE_URL ?? '/api/analyze';
+const ANALYZE_URL = process.env.EXPO_PUBLIC_ANALYZE_URL ?? apiUrl('/api/analyze');
 
 /** Web sends the image to the Vercel serverless OpenCV function (see api/analyze.ts). */
 async function analyzeViaBackend(base64: string, includeCoinReference: boolean): Promise<CvResult> {
   const response = await fetch(ANALYZE_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: apiHeaders(),
     body: JSON.stringify({ base64, includeCoinReference }),
   });
 

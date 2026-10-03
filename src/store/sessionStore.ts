@@ -10,7 +10,10 @@ import {
   CvResult,
   QuestionnaireAnswers,
   ReviewedBoundary,
+  ImageSource,
   ScanSession,
+  TissueConfirmation,
+  WoundMeasurement,
   defaultAnswers,
   defaultSession,
 } from '@/decision/types';
@@ -23,6 +26,14 @@ type SessionState = {
   setCvResult: (cv: CvResult) => void;
   setBoundaryProposal: (proposal: BoundaryProposal | null) => void;
   setBoundary: (boundary: ReviewedBoundary | null) => void;
+  setMeasurement: (measurement: WoundMeasurement | null) => void;
+  setScaleRejected: (rejected: boolean) => void;
+  setTissueConfirmation: (confirmation: TissueConfirmation | null) => void;
+  setCorrectionId: (id: string | null) => void;
+  setImageBase64: (base64: string | null) => void;
+  setImageSource: (source: ImageSource) => void;
+  /** A per-install pseudonymous id sent as `clinician_id` until clinician accounts exist (MW-01). */
+  clinicianId: string;
   setBodyZone: (zone: BodyZone) => void;
   setAnswers: (answers: Partial<QuestionnaireAnswers>) => void;
   setV2Run: (v2: Record<string, unknown> | null, baseline: BaselineComparison | null) => void;
@@ -50,6 +61,10 @@ export const useSessionStore = create<SessionState>()(
             // one — it would be a human sign-off on a different wound.
             boundaryProposal: null,
             boundary: null,
+            measurement: null,
+            tissueConfirmation: null,
+            correctionId: null,
+            imageBase64: null,
             result: null,
           },
         })),
@@ -63,8 +78,44 @@ export const useSessionStore = create<SessionState>()(
         })),
       setBoundary: (boundary) =>
         set((state) => ({
-          session: { ...state.session, boundary },
+          // A new boundary invalidates everything measured or confirmed inside
+          // the old one.
+          session: {
+            ...state.session,
+            boundary,
+            measurement: null,
+            tissueConfirmation: null,
+            correctionId: null,
+          },
         })),
+      setMeasurement: (measurement) =>
+        set((state) => ({
+          // Tissue confirmed against other percentages is not a confirmation of these.
+          session: { ...state.session, measurement, tissueConfirmation: null },
+        })),
+      setScaleRejected: (rejected) =>
+        set((state) => ({
+          session: state.session.measurement
+            ? { ...state.session, measurement: { ...state.session.measurement, scaleRejected: rejected } }
+            : state.session,
+        })),
+      setTissueConfirmation: (tissueConfirmation) =>
+        set((state) => ({
+          session: { ...state.session, tissueConfirmation },
+        })),
+      setCorrectionId: (correctionId) =>
+        set((state) => ({
+          session: { ...state.session, correctionId },
+        })),
+      setImageBase64: (imageBase64) =>
+        set((state) => ({
+          session: { ...state.session, imageBase64 },
+        })),
+      setImageSource: (imageSource) =>
+        set((state) => ({
+          session: { ...state.session, imageSource },
+        })),
+      clinicianId: `device-${globalThis.crypto.randomUUID()}`,
       setBodyZone: (zone) =>
         set((state) => ({
           session: { ...state.session, bodyZone: zone },
@@ -87,9 +138,11 @@ export const useSessionStore = create<SessionState>()(
           },
         })),
       resetSession: () =>
-        set({
-          session: defaultSession(),
-        }),
+        set((state) => ({
+          // Where the photos come from is a property of the person's work, not of
+          // one scan — keep it across scans.
+          session: { ...defaultSession(), imageSource: state.session.imageSource },
+        })),
       saveCurrentReport: (result) =>
         set((state) => ({
           savedReports: [{ ...state.session, result }, ...state.savedReports].slice(0, 10),
@@ -98,7 +151,7 @@ export const useSessionStore = create<SessionState>()(
     {
       name: 'woundcare-session',
       storage: createJSONStorage(() => AsyncStorage),
-      partialize: (state) => ({ savedReports: state.savedReports }),
+      partialize: (state) => ({ savedReports: state.savedReports, clinicianId: state.clinicianId }),
     },
   ),
 );

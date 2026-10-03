@@ -87,7 +87,7 @@ const imageDataUrl = imageArg ? loadImage(imageArg) : syntheticImage();
 const bytes = dataUrlToBytes(imageDataUrl);
 const size = bytes ? imageSize(bytes) : null;
 // Centre of the frame: the stand-in for the HSV centroid the app would send.
-const point = { xPct: 0.5, yPct: 0.5 };
+const prompts = { points: [{ xPct: 0.5, yPct: 0.5, label: 1 as const }] };
 
 console.log(`Probe image: ${imageArg ?? 'synthetic 256×256'}${size ? ` (${size.width}×${size.height})` : ''}`);
 console.log(`Provider order: ${parseProviderOrder(process.env.SEGMENTATION_PROVIDERS).join(' → ')}\n`);
@@ -135,7 +135,7 @@ async function send(request: { url: string; method: 'POST'; headers: Record<stri
 
 // --- SAM 3 (fal.ai) --------------------------------------------------------
 
-const sam3Req = sam3Request(process.env, { imageDataUrl, point, imageBytes: bytes });
+const sam3Req = sam3Request(process.env, { imageDataUrl, prompts, imageBytes: bytes });
 if (!sam3Req) {
   console.log('sam3 — SKIPPED: FAL_KEY is unset.\n');
 } else {

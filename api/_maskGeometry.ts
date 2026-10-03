@@ -372,3 +372,53 @@ export function traceOutline(
 
   return simplified.length >= MIN_POLYGON_POINTS ? simplified : null;
 }
+
+/** A one-byte-per-pixel mask and its dimensions. */
+export type MaskRaster = { data: Uint8Array; width: number; height: number };
+
+export type MaskComparison = {
+  /** Intersection over union, or null when both masks are empty. */
+  iou: number | null;
+  /** Set pixels of each mask, counted on the common grid so they are comparable. */
+  aAreaPx: number;
+  bAreaPx: number;
+  /** (b − a) / a × 100, or null when `a` is empty. */
+  areaDeltaPct: number | null;
+};
+
+/**
+ * Compare two masks — the model's draft and the clinician's final (segmentation
+ * spec §4.1). They can arrive at different resolutions and aspect ratios (SAM 3
+ * returns the photo's grid; a rasterised polygon is square by default), so both
+ * are sampled at FRACTIONAL positions on one `gridW × gridH` grid, nearest
+ * neighbour. Comparing raw pixel arrays of different shapes would be meaningless.
+ */
+export function compareMasks(a: MaskRaster, b: MaskRaster, gridW: number, gridH: number): MaskComparison {
+  const sample = (m: MaskRaster, gx: number, gy: number) => {
+    const x = Math.min(m.width - 1, Math.floor(((gx + 0.5) / gridW) * m.width));
+    const y = Math.min(m.height - 1, Math.floor(((gy + 0.5) / gridH) * m.height));
+    return m.data[y * m.width + x] !== 0;
+  };
+  let aArea = 0;
+  let bArea = 0;
+  let inter = 0;
+  for (let gy = 0; gy < gridH; gy += 1) {
+    for (let gx = 0; gx < gridW; gx += 1) {
+      const inA = sample(a, gx, gy);
+      const inB = sample(b, gx, gy);
+      if (inA) aArea += 1;
+      if (inB) bArea += 1;
+      if (inA && inB) inter += 1;
+    }
+  }
+  const union = aArea + bArea - inter;
+  return {
+    iou: union === 0 ? null : inter / union,
+    aAreaPx: aArea,
+    bAreaPx: bArea,
+    areaDeltaPct: aArea === 0 ? null : ((bArea - aArea) / aArea) * 100,
+  };
+}
+
+/** IoU below this means the clinician materially changed the boundary (spec §4.1). */
+export const BOUNDARY_CHANGED_IOU = 0.95;

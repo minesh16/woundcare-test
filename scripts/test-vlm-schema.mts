@@ -31,6 +31,7 @@ const valid = {
     malodour: 'uncertain',
     friableGranulation: 'absent',
   },
+  deepStructuresVisible: 'absent',
   edgeType: 'rolled_epibole',
   visualExudate: 'moderate',
   tissueCorroboration: 'agrees',
@@ -43,6 +44,7 @@ const allUncertain = {
     erythema: 'uncertain', warmth: 'uncertain', purulent: 'uncertain',
     malodour: 'uncertain', friableGranulation: 'uncertain',
   },
+  deepStructuresVisible: 'uncertain',
   edgeType: 'uncertain',
   visualExudate: 'uncertain',
   tissueCorroboration: 'uncertain',
@@ -50,6 +52,14 @@ const allUncertain = {
 };
 check('schema lets the model answer "uncertain" everywhere', vlmFeaturesSchema.safeParse(allUncertain).success);
 
+check(
+  'the model must answer deepStructuresVisible (spec §4.5) — omitting it is rejected',
+  !vlmFeaturesSchema.safeParse({ ...valid, deepStructuresVisible: undefined }).success,
+);
+check(
+  'the prompt carries the dark-skin rule for erythema',
+  VLM_SYSTEM_PROMPT.includes('darker skin') && VLM_SYSTEM_PROMPT.includes('"uncertain" for erythema'),
+);
 check(
   'schema rejects free text in an enum slot',
   !vlmFeaturesSchema.safeParse({ ...valid, edgeType: 'looks a bit rolled to me' }).success,

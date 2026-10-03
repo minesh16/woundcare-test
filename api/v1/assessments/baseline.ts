@@ -1,6 +1,7 @@
 import { generateText } from 'ai';
-import type { VercelRequest, VercelResponse } from '@vercel/node';
 
+import { baselineInput } from '../../_contracts';
+import { endpoint } from '../../_http';
 import { callGateway } from './_gateway';
 
 /**
@@ -15,45 +16,40 @@ import { callGateway } from './_gateway';
  * Keep it honest: the prompt is a fair, ordinary request, not a strawman. The
  * comparison is only worth making if the baseline is the real thing.
  */
-export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
-  if (req.method !== 'POST') {
-    res.status(405).json({ error: 'Method not allowed' });
-    return;
-  }
-
-  const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body ?? {};
-  const base64 = String(body.base64 ?? '');
-  if (!base64) {
-    res.status(400).json({ error: 'Missing base64 image.' });
-    return;
-  }
-
-  const outcome = await callGateway('vlm', async (model, signal) => {
-    const { text } = await generateText({
-      model,
-      abortSignal: signal,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: 'Assess this wound and recommend a dressing.' },
-            { type: 'image', image: base64.startsWith('data:') ? base64 : `data:image/jpeg;base64,${base64}` },
-          ],
-        },
-      ],
+/**
+ * POST /api/v1/assessments/baseline — the deliberately UNGROUNDED comparison
+ * arm (an open question to a frontier model). Never feeds the assessment.
+ * Heavy-rate-limited: it is an open prompt to a paid model (MW-03).
+ */
+export default endpoint({
+  name: 'baseline',
+  scope: 'baseline',
+  input: baselineInput,
+  heavy: true,
+  handle: async (input) => {
+    const base64 = input.base64;
+    const outcome = await callGateway('vlm', async (model, signal) => {
+      const { text } = await generateText({
+        model,
+        abortSignal: signal,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Assess this wound and recommend a dressing.' },
+              { type: 'image', image: base64.startsWith('data:') ? base64 : `data:image/jpeg;base64,${base64}` },
+            ],
+          },
+        ],
+      });
+      return text;
     });
-    return text;
-  });
-
-  if (outcome.source === 'unavailable') {
-    res.status(200).json({ source: 'unavailable', reason: outcome.reason, latencyMs: outcome.latencyMs });
-    return;
-  }
-
-  res.status(200).json({
-    source: 'gateway',
-    text: outcome.value,
-    model: outcome.model,
-    latencyMs: outcome.latencyMs,
-  });
-}
+    if (outcome.source === 'unavailable') {
+      return { body: { source: 'unavailable', reason: outcome.reason, latencyMs: outcome.latencyMs }, degraded: true };
+    }
+    return {
+      body: { source: 'gateway', text: outcome.value, model: outcome.model, latencyMs: outcome.latencyMs },
+      models: { vlm: outcome.model },
+    };
+  },
+});

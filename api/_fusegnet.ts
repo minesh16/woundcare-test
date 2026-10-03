@@ -66,6 +66,12 @@ export type FusegnetResult = {
   areaPx: number | null;
   /** Whether the endpoint's own region filter saw more than one component. */
   multipleRegions: boolean | null;
+  /** `regions.regions_kept`; 0 means nothing survived inside the box. */
+  regionsKept: number | null;
+  /** The endpoint's region report, for the correction log. */
+  regions: Record<string, number | boolean> | null;
+  /** The endpoint's own `latency_ms`. */
+  latencyMs: number | null;
   model: string;
   /** Response keys, for diagnosing a contract mismatch. */
   keys: string[];
@@ -89,8 +95,12 @@ export const FUSEGNET_ENV_VARS = [
  * provider, so a FUSegNet outage degrades the boundary rather than the
  * assessment.
  */
-export async function runFusegnet(args: { imageDataUrl: string }): Promise<FusegnetResult> {
-  const request = fusegnetRequest(process.env, args.imageDataUrl);
+export async function runFusegnet(args: {
+  imageDataUrl: string;
+  /** `[x0, y0, x1, y1]` pixels of `imageDataUrl` — SAM 3's box, for a second opinion. */
+  box?: readonly number[] | null;
+}): Promise<FusegnetResult> {
+  const request = fusegnetRequest(process.env, args.imageDataUrl, args.box ?? null);
   if (!request) {
     throw new Error('FUSegNet not configured: FUSEGNET_MODAL_URL is unset.');
   }
@@ -108,8 +118,8 @@ export async function runFusegnet(args: { imageDataUrl: string }): Promise<Fuseg
     });
 
     if (!response.ok) {
-      const detail = await response.text().catch(() => '');
-      throw new Error(`FUSegNet request failed (${response.status}): ${detail.slice(0, 200)}`);
+      // Status only: upstream bodies can carry internal detail (MW-13).
+      throw new Error(`FUSegNet request failed (HTTP ${response.status}).`);
     }
 
     parsed = parseFusegnetResponse((await response.json()) as unknown, process.env.FUSEGNET_MASK_FIELD);
@@ -136,6 +146,9 @@ export async function runFusegnet(args: { imageDataUrl: string }): Promise<Fuseg
     score: parsed.score,
     areaPx: parsed.areaPx,
     multipleRegions: parsed.multipleRegions,
+    regionsKept: parsed.regionsKept,
+    regions: parsed.regions,
+    latencyMs: parsed.latencyMs,
     // Prefer the weights the endpoint names itself over a label we made up: the
     // audit log's job is to say what actually ran, and the endpoint knows and we
     // don't. Falls back to the env label, then a constant.

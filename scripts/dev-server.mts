@@ -28,7 +28,9 @@ import { pathToFileURL } from 'node:url';
 if (existsSync('.env.local')) {
   for (const line of readFileSync('.env.local', 'utf8').split('\n')) {
     const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
-    if (match && !process.env[match[1]]) {
+    // `in`, not truthiness: an explicitly empty var (FAL_KEY= npm run dev:api)
+    // stays empty, so a degraded mode can be run on purpose.
+    if (match && !(match[1] in process.env)) {
       process.env[match[1]] = match[2].replace(/^["']|["']$/g, '');
     }
   }

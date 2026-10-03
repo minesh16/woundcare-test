@@ -1,3 +1,6 @@
+import type { ScaleReference, WhiteBalance, WoundGeometry } from '@/assessment/state';
+import type { ClinicianTissueChoice } from '@/decision/engine.types';
+
 export type DurationAnswer = 'yes' | 'no' | 'unsure';
 export type ExudateLevel = 'none' | 'moderate' | 'heavy';
 export type YesNo = 'yes' | 'no';
@@ -110,7 +113,20 @@ export type QuestionnaireAnswers = {
   abpiBand: AbpiBand | null;
   infectionSigns: YesNo | null;
   spreadingRedness: YesNo | null;
+  // Clinician-only examination (segmentation spec §4.4). All optional.
+  /** Touch vs the same site on the other side. Replaces the yes/no warmth question. */
+  palpatedWarmth: 'cooler' | 'same' | 'warmer' | 'hot' | null;
+  induration: YesNoUnsure | null;
+  oedema: YesNoUnsure | null;
+  underminingTunnelling: YesNoUnsure | null;
+  /** O'clock position of undermining (12 = towards the head). */
+  underminingClock: number | null;
+  depthMm: number | null;
+  /** Monk Skin Tone 1–10. Never a clinical input — accuracy stratification and the dark-skin rule only. */
+  monkTone: number | null;
 };
+
+export type YesNoUnsure = 'yes' | 'no' | 'unsure';
 
 export type UrgencyLevel = 'immediate' | 'within_48h' | 'routine';
 export type Classification = 'likely_acute' | 'likely_chronic' | 'indeterminate';
@@ -165,6 +181,8 @@ export type ReviewedBoundary = {
   areaPx: number | null;
   areaPct: number | null;
   reviewedAt: string;
+  /** From POST /approve — every image module requires it, bound to this image + mask. */
+  approvalId: string;
 };
 
 /**
@@ -176,6 +194,8 @@ export type ReviewedBoundary = {
  */
 export type BoundaryProposal = {
   maskUrl: string | null;
+  /** Who drew it: a model, the colour fallback (`hsv`), or nobody. */
+  source: 'sam3' | 'fusegnet' | 'hsv' | null;
   provider: 'sam3' | 'fusegnet' | null;
   model: string | null;
   /** Editable outline traced from the mask; null when it could not be traced. */
@@ -184,7 +204,75 @@ export type BoundaryProposal = {
   areaPct: number | null;
   multipleRegions: boolean | null;
   confidence: 'high' | 'medium' | 'low';
+  /** The provider's score for the chosen mask, when it reports one (SAM 3 does). */
+  score: number | null;
+  /** The image the models saw. */
+  frame: { width: number; height: number } | null;
+  /** FUSegNet's second opinion, when it ran (foot wounds). */
+  secondOpinion: SecondOpinionSummary | null;
+  /** None of SAM 3's masks satisfied every tap. */
+  promptConflict: boolean;
+  /** Why there is no model outline, when there is none. */
+  reason: string | null;
 };
+
+/** FUSegNet's second opinion as the client keeps it (segmentation spec §6.4). */
+export type SecondOpinionSummary =
+  | {
+      status: 'ok';
+      model: string;
+      maskUrl: string;
+      outline: { x: number; y: number }[] | null;
+      agreementIoU: number | null;
+      regions: Record<string, number | boolean> | null;
+      meanProb: number | null;
+      latencyMs: number | null;
+    }
+  | { status: 'unavailable'; reason: string };
+
+/**
+ * The measurement of the APPROVED outline — tissue %, scale and size — made once,
+ * server-side, right after the review step (segmentation spec §4.2).
+ *
+ * This, not `cv`, is what the engine and the result screen use once it exists.
+ * `cv` is the on-device HSV pass: a capture quality gate and the offline
+ * fallback, but its mask can cover the whole limb (skin reads as slough), so it
+ * must never be presented as the measurement of an approved wound.
+ */
+export type WoundMeasurement = {
+  granulationPercent: number;
+  sloughPercent: number;
+  necrosisPercent: number;
+  epithelialPercent: number;
+  otherPercent: number;
+  /** Pixels inside the approved outline, on the analysis frame. */
+  maskAreaPx: number;
+  maskProvider: 'sam3' | 'fusegnet' | null;
+  periwound: { rednessPct: number; macerationPct: number; maceration: boolean } | null;
+  frame: { width: number; height: number };
+  scale: ScaleReference | null;
+  scaleReason: string | null;
+  /**
+   * The clinician said the circled object is not the coin. The scale — and
+   * everything sized with it, the periwound band included — is then dropped.
+   */
+  scaleRejected: boolean;
+  geometry: WoundGeometry;
+  /** Colour correction from a white reference patch; `no_marker` when there was none (spec §5). */
+  whiteBalance: WhiteBalance;
+  measuredAt: string;
+};
+
+/** The dominant tissue as confirmed on the result screen (segmentation spec §4.3). */
+export type TissueConfirmation = {
+  /** What the engine's precedence picked from the percentages. */
+  auto: ClinicianTissueChoice | null;
+  final: ClinicianTissueChoice;
+  confirmedAt: string;
+};
+
+/** Where the photo came from — decides whether mask images may be kept (spec §4.1). */
+export type ImageSource = 'public_dataset' | 'synthetic' | 'consented_demo';
 
 export type ScanSession = {
   id: string;
@@ -197,6 +285,19 @@ export type ScanSession = {
   boundaryProposal: BoundaryProposal | null;
   /** Null until the review step; see `ReviewedBoundary`. */
   boundary: ReviewedBoundary | null;
+  /** Null until the approved outline has been measured; see `WoundMeasurement`. */
+  measurement: WoundMeasurement | null;
+  /** Null until the clinician confirms the dominant tissue on the result screen. */
+  tissueConfirmation: TissueConfirmation | null;
+  /** The correction-log row for this approval, so the tissue confirmation can join it. */
+  correctionId: string | null;
+  imageSource: ImageSource;
+  /**
+   * The photo as sent to the API — encoded ONCE, on the analyze screen, and
+   * reused for every call. Approvals bind to the SHA-256 of these exact bytes,
+   * and re-encoding is not guaranteed to be byte-identical.
+   */
+  imageBase64: string | null;
   bodyZone: BodyZone | null;
   answers: QuestionnaireAnswers;
   result: AssessmentResult | null;
@@ -222,6 +323,13 @@ export const defaultAnswers = (): QuestionnaireAnswers => ({
   abpiBand: null,
   infectionSigns: null,
   spreadingRedness: null,
+  palpatedWarmth: null,
+  induration: null,
+  oedema: null,
+  underminingTunnelling: null,
+  underminingClock: null,
+  depthMm: null,
+  monkTone: null,
 });
 
 function createSessionId(): string {
@@ -233,10 +341,19 @@ export const defaultSession = (): ScanSession => ({
   createdAt: new Date().toISOString(),
   consentGiven: false,
   imageUri: null,
-  includeCoinReference: false,
+  // On by default: the demo photos carry a coin, and with the switch off no
+  // scale is ever looked for, so a photo WITH a coin was reported "no scale".
+  includeCoinReference: true,
   cv: null,
   boundaryProposal: null,
   boundary: null,
+  measurement: null,
+  tissueConfirmation: null,
+  correctionId: null,
+  // The conservative default: a consented photo of a real person, so no mask
+  // images are kept in the correction log.
+  imageSource: 'consented_demo',
+  imageBase64: null,
   bodyZone: null,
   answers: defaultAnswers(),
   result: null,

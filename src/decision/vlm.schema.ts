@@ -26,6 +26,7 @@ export const vlmFeaturesSchema = z.object({
     malodour: triSchema.describe('Visual correlates of odour, e.g. heavy biofilm or sloughy debris.'),
     friableGranulation: triSchema.describe('Granulation tissue that looks fragile or bleeds easily — a subtle infection sign.'),
   }),
+  deepStructuresVisible: triSchema.describe('Bone, tendon or a deep cavity is visible in the wound bed.'),
   edgeType: z.enum(['healthy', 'rolled_epibole', 'undermined', 'callused', 'macerated', 'uncertain'])
     .describe('The appearance of the wound edge.'),
   visualExudate: z.enum(['none', 'low', 'moderate', 'high', 'very_high', 'uncertain'])
@@ -56,6 +57,10 @@ export const VLM_SYSTEM_PROMPT = [
   'useful than a confident guess — a guess will reduce the reliability of the assessment.',
   'Only report a sign as "present" if you can actually see it in the image.',
   '',
-  'You will be shown: the full photograph, a crop of the wound bed (inside the detected',
-  'boundary), and a crop of the skin immediately surrounding the wound.',
+  'Redness on darker skin: when the skin tone is dark, or the contrast between the wound',
+  'surroundings and normal skin is low, answer "uncertain" for erythema unless redness or',
+  'discolouration is unambiguous. Do not answer "absent" just because you cannot see redness.',
+  '',
+  'You will be shown: the full photograph, a crop of the wound bed (inside the boundary a',
+  'clinician approved), and a crop of the skin immediately surrounding the wound.',
 ].join('\n');

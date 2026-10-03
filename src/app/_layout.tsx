@@ -1,11 +1,14 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { AppColors } from '@/constants/appTheme';
 
 export default function RootLayout() {
   return (
-    <>
+    // Gestures (dragging outline points, drawing a box) need this root on both
+    // web and native.
+    <GestureHandlerRootView style={{ flex: 1 }}>
       <StatusBar style="dark" />
       <Stack
         screenOptions={{
@@ -23,6 +26,6 @@ export default function RootLayout() {
         <Stack.Screen name="result" options={{ title: 'Your result' }} />
         <Stack.Screen name="compare" options={{ title: 'Grounded vs ungrounded' }} />
       </Stack>
-    </>
+    </GestureHandlerRootView>
   );
 }

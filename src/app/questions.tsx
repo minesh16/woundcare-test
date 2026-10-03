@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { DisclaimerFooter } from '@/components/DisclaimerFooter';
 import { OptionButton, QuestionCard } from '@/components/QuestionCard';
@@ -8,6 +8,31 @@ import { PrimaryButton } from '@/components/PrimaryButton';
 import { ProgressHeader } from '@/components/ProgressHeader';
 import { AppColors } from '@/constants/appTheme';
 import { isQuestionnaireComplete, useSessionStore } from '@/store/sessionStore';
+
+/** The Monk Skin Tone Scale's ten reference colours (Monk, 2019; Google, CC-BY 4.0). */
+const MONK_SWATCHES = ['#f6ede4', '#f3e7db', '#f7ead0', '#eadaba', '#d7bd96', '#a07e56', '#825c43', '#604134', '#3a312a', '#292420'];
+
+function TriRow({
+  value,
+  onSelect,
+}: {
+  value: 'yes' | 'no' | 'unsure' | null;
+  onSelect: (value: 'yes' | 'no' | 'unsure') => void;
+}) {
+  return (
+    <>
+      {(['yes', 'no', 'unsure'] as const).map((option) => (
+        <OptionButton
+          key={option}
+          label={option === 'yes' ? 'Yes' : option === 'no' ? 'No' : 'Unsure'}
+          value={option}
+          selected={value === option}
+          onSelect={onSelect}
+        />
+      ))}
+    </>
+  );
+}
 
 export default function QuestionsScreen() {
   const answers = useSessionStore((state) => state.session.answers);
@@ -62,14 +87,24 @@ export default function QuestionsScreen() {
           </View>
         </QuestionCard>
 
-        <QuestionCard title="Does the area around the wound feel warm?">
-          {(['yes', 'no'] as const).map((option) => (
+        {/* Palpated warmth (spec §4.4): a hand on the skin, compared with the
+            same place on the other side. It OVERRIDES the photo's guess at
+            warmth; the yes/no `warmth` answer is derived from it. */}
+        <QuestionCard title="How warm is the skin around the wound, compared with the same place on the other side?">
+          {(
+            [
+              ['cooler', 'Cooler'],
+              ['same', 'About the same'],
+              ['warmer', 'Warmer'],
+              ['hot', 'Hot'],
+            ] as const
+          ).map(([value, label]) => (
             <OptionButton
-              key={option}
-              label={option === 'yes' ? 'Yes' : 'No'}
-              value={option}
-              selected={answers.warmth === option}
-              onSelect={(value) => setAnswers({ warmth: value })}
+              key={value}
+              label={label}
+              value={value}
+              selected={answers.palpatedWarmth === value}
+              onSelect={(v) => setAnswers({ palpatedWarmth: v, warmth: v === 'warmer' || v === 'hot' ? 'yes' : 'no' })}
             />
           ))}
         </QuestionCard>
@@ -186,6 +221,76 @@ export default function QuestionsScreen() {
             />
           ))}
         </QuestionCard>
+        <QuestionCard title="Clinician examination (optional)">
+          <Text style={styles.optionalHint}>For a clinician examining the wound. Leave blank if not assessed.</Text>
+
+          <Text style={styles.optionalLabel}>Induration (firm swelling around the wound)</Text>
+          <TriRow value={answers.induration} onSelect={(v) => setAnswers({ induration: v })} />
+
+          <Text style={styles.optionalLabel}>Oedema</Text>
+          <TriRow value={answers.oedema} onSelect={(v) => setAnswers({ oedema: v })} />
+
+          <Text style={styles.optionalLabel}>Undermining or tunnelling</Text>
+          <TriRow
+            value={answers.underminingTunnelling}
+            onSelect={(v) => setAnswers({ underminingTunnelling: v, underminingClock: v === 'yes' ? answers.underminingClock : null })}
+          />
+          {answers.underminingTunnelling === 'yes' ? (
+            <>
+              <Text style={styles.optionalHint}>Where? (o'clock, 12 = towards the head) — optional</Text>
+              <View style={styles.painGrid}>
+                {Array.from({ length: 12 }, (_, i) => i + 1).map((hour) => {
+                  const selected = answers.underminingClock === hour;
+                  return (
+                    <Pressable
+                      key={hour}
+                      accessibilityRole="button"
+                      onPress={() => setAnswers({ underminingClock: selected ? null : hour })}
+                      style={[styles.painChip, selected && styles.painChipSelected]}>
+                      <Text style={[styles.painChipText, selected && styles.painChipTextSelected]}>{hour}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </>
+          ) : null}
+
+          <Text style={styles.optionalLabel}>Depth (mm)</Text>
+          <TextInput
+            style={styles.input}
+            keyboardType="decimal-pad"
+            placeholder="e.g. 4"
+            value={answers.depthMm != null ? String(answers.depthMm) : ''}
+            onChangeText={(text) => {
+              const value = Number(text.replace(',', '.'));
+              setAnswers({ depthMm: text.trim() === '' || !Number.isFinite(value) ? null : Math.min(200, Math.max(0, value)) });
+            }}
+            accessibilityLabel="Wound depth in millimetres"
+          />
+
+          {/* Monk Skin Tone (spec §4.4): NEVER a clinical input. It stratifies
+              accuracy and drives one conservative rule — at 7+, "no redness
+              seen" is not taken as evidence of no infection. */}
+          <Text style={styles.optionalLabel}>Skin tone (Monk scale)</Text>
+          <Text style={styles.optionalHint}>Used only to check the app works equally well across skin tones.</Text>
+          <View style={styles.monkRow}>
+            {MONK_SWATCHES.map((colour, i) => {
+              const tone = i + 1;
+              const selected = answers.monkTone === tone;
+              return (
+                <Pressable
+                  key={tone}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Monk skin tone ${tone}`}
+                  accessibilityState={{ selected }}
+                  onPress={() => setAnswers({ monkTone: selected ? null : tone })}
+                  style={[styles.monkSwatch, { backgroundColor: colour }, selected && styles.monkSwatchSelected]}>
+                  <Text style={[styles.monkLabel, { color: tone >= 6 ? '#FFFFFF' : '#1F2937' }]}>{tone}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </QuestionCard>
       </ScrollView>
 
       <View style={styles.footer}>
@@ -201,6 +306,38 @@ export default function QuestionsScreen() {
 }
 
 const styles = StyleSheet.create({
+  input: {
+    minHeight: 44,
+    borderWidth: 1,
+    borderColor: AppColors.border,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    fontSize: 16,
+    color: AppColors.text,
+    backgroundColor: AppColors.white,
+  },
+  monkRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  monkSwatch: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  monkSwatchSelected: {
+    borderColor: AppColors.teal,
+    transform: [{ scale: 1.1 }],
+  },
+  monkLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
   container: {
     flex: 1,
     backgroundColor: AppColors.background,

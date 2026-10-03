@@ -20,8 +20,14 @@
  * constraint `src/decision/engine.ts` is built to.
  */
 import {
+  agreementConfidence,
   buildFusegnetBody,
   buildSam3Input,
+  cxcywhToPixelBox,
+  maskBoxCxcywh,
+  sanitisePrompts,
+  selectByPrompts,
+  shouldRunSecondOpinion,
   confidenceFromScore,
   dataUrlToBytes,
   DEFAULT_PROVIDER_ORDER,
@@ -174,20 +180,33 @@ check('no point prompt is sent when dimensions are unknown', sam3Plain.point_pro
 
 const sam3Pointed = buildSam3Input({
   imageDataUrl: sam3Image,
-  point: { xPct: 0.25, yPct: 0.5 },
+  points: [
+    { xPct: 0.25, yPct: 0.5, label: 1 },
+    { xPct: 0.75, yPct: 0.25, label: 0 },
+  ],
+  box: { x0Pct: 0.1, y0Pct: 0.2, x1Pct: 0.5, y1Pct: 0.8 },
   size: { width: 400, height: 200 },
 });
-eq('the point prompt is in PIXELS, foreground-labelled', sam3Pointed.point_prompts, [{ x: 100, y: 100, label: 1 }]);
+eq('point prompts are PIXELS, keep their include/exclude label, and share object 1', sam3Pointed.point_prompts, [
+  { x: 100, y: 100, label: 1, object_id: 1 },
+  { x: 300, y: 50, label: 0, object_id: 1 },
+]);
+eq('the box prompt is pixels on the same object', sam3Pointed.box_prompts, [
+  { x_min: 40, y_min: 40, x_max: 200, y_max: 160, object_id: 1 },
+]);
+check('boxes are requested back (for FUSegNet and the UI)', sam3Plain.include_boxes === true);
+check('sync_mode is ON by default — masks come back inline, not on a public CDN', sam3Plain.sync_mode === true);
+eq('max_masks defaults to 3 (spec §3.1)', sam3Plain.max_masks, 3);
 
 check(
-  'a point with no size is dropped rather than sent as a fraction',
-  buildSam3Input({ imageDataUrl: sam3Image, point: { xPct: 0.25, yPct: 0.5 } }).point_prompts === undefined,
+  'points with no size are dropped rather than sent as fractions',
+  buildSam3Input({ imageDataUrl: sam3Image, points: [{ xPct: 0.25, yPct: 0.5, label: 1 }] }).point_prompts === undefined,
 );
 eq('a custom prompt overrides the default', buildSam3Input({ imageDataUrl: sam3Image, prompt: 'ulcer' }).prompt, 'ulcer');
 eq('a blank prompt falls back to the default', buildSam3Input({ imageDataUrl: sam3Image, prompt: '   ' }).prompt, 'wound');
 eq('max_masks is clamped to fal\'s 1–32 range (high)', buildSam3Input({ imageDataUrl: sam3Image, maxMasks: 999 }).max_masks, 32);
 eq('max_masks is clamped to fal\'s 1–32 range (low)', buildSam3Input({ imageDataUrl: sam3Image, maxMasks: 0 }).max_masks, 1);
-eq('a non-numeric max_masks falls back to the default', buildSam3Input({ imageDataUrl: sam3Image, maxMasks: NaN }).max_masks, 4);
+eq('a non-numeric max_masks falls back to the default', buildSam3Input({ imageDataUrl: sam3Image, maxMasks: NaN }).max_masks, 3);
 
 // ---------------------------------------------------------------------------
 // SAM 3 response
@@ -243,8 +262,10 @@ eq('a malformed response is empty rather than throwing', parseSam3Response('nope
 eq('a null response is empty rather than throwing', parseSam3Response(null).masks, []);
 check('highestScoreIndex of nothing is null', highestScoreIndex(null) === null);
 
-eq('a score at the threshold is high confidence', confidenceFromScore(0.5), 'high');
-eq('a score under the threshold is medium', confidenceFromScore(0.49), 'medium');
+eq('a score of 0.80 is high confidence', confidenceFromScore(0.8), 'high');
+eq('a score of 0.68 is medium, not high (the demo-run boundary)', confidenceFromScore(0.68), 'medium');
+eq('a score of 0.50 is medium', confidenceFromScore(0.5), 'medium');
+eq('a score under 0.50 is low', confidenceFromScore(0.49), 'low');
 eq('a MISSING score is medium, never high', confidenceFromScore(null), 'medium');
 eq('a NaN score is medium, never high', confidenceFromScore(NaN), 'medium');
 
@@ -465,20 +486,108 @@ eq(
 
 // The whole reason `imageBytes` is threaded through: a real header means a real
 // pixel coordinate. Without bytes there is no point prompt at all.
-const sam3WithBytes = sam3Request(
-  { FAL_KEY: 'k' },
-  { imageDataUrl: 'd', point: { xPct: 0.5, yPct: 0.5 }, imageBytes: jpegHeader(640, 480) },
-);
+const tap = { points: [{ xPct: 0.5, yPct: 0.5, label: 1 as const }] };
+const sam3WithBytes = sam3Request({ FAL_KEY: 'k' }, { imageDataUrl: 'd', prompts: tap, imageBytes: jpegHeader(640, 480) });
 eq('a point prompt is placed from the real image dimensions', JSON.parse(sam3WithBytes!.body).point_prompts, [
-  { x: 320, y: 240, label: 1 },
+  { x: 320, y: 240, label: 1, object_id: 1 },
 ]);
 check(
   'and omitted when the image header could not be read',
-  JSON.parse(
-    sam3Request({ FAL_KEY: 'k' }, { imageDataUrl: 'd', point: { xPct: 0.5, yPct: 0.5 }, imageBytes: Uint8Array.from([1, 2]) })!
-      .body,
-  ).point_prompts === undefined,
+  JSON.parse(sam3Request({ FAL_KEY: 'k' }, { imageDataUrl: 'd', prompts: tap, imageBytes: Uint8Array.from([1, 2]) })!.body)
+    .point_prompts === undefined,
 );
+eq('the SAM 3 timeout defaults to 25 s (spec §3.1)', sam3Req?.timeoutMs, 25_000);
+eq(
+  'SAM3_TEXT_PROMPT (spec name) sets the concept prompt',
+  JSON.parse(sam3Request({ FAL_KEY: 'k', SAM3_TEXT_PROMPT: 'ulcer' }, { imageDataUrl: 'd' })!.body).prompt,
+  'ulcer',
+);
+eq(
+  "a caller's text prompt beats the env default",
+  JSON.parse(sam3Request({ FAL_KEY: 'k', SAM3_TEXT_PROMPT: 'ulcer' }, { imageDataUrl: 'd', prompts: { text: 'burn' } })!.body).prompt,
+  'burn',
+);
+check(
+  'SAM3_SYNC_MODE=false turns inline masks off',
+  JSON.parse(sam3Request({ FAL_KEY: 'k', SAM3_SYNC_MODE: 'false' }, { imageDataUrl: 'd' })!.body).sync_mode === false,
+);
+eq("SEGMENT_PROVIDER's fal-sam3 is the default chain", parseProviderOrder('fal-sam3'), ['sam3', 'fusegnet']);
+
+// ---------------------------------------------------------------------------
+// Prompt sanitising — caller-supplied data that steers the model
+// ---------------------------------------------------------------------------
+
+eq('no prompts → nothing', sanitisePrompts(undefined), {});
+eq(
+  'taps are clamped into the frame and malformed ones dropped',
+  sanitisePrompts({ points: [{ xPct: 1.4, yPct: -0.2, label: 1 }, { xPct: NaN, yPct: 0.5, label: 1 }, { xPct: 0.5, yPct: 0.5, label: 2 }] }),
+  { points: [{ xPct: 1, yPct: 0, label: 1 }] },
+);
+eq(
+  'a box drawn backwards is normalised',
+  sanitisePrompts({ box: { x0Pct: 0.8, y0Pct: 0.9, x1Pct: 0.2, y1Pct: 0.1 } }).box,
+  { x0Pct: 0.2, y0Pct: 0.1, x1Pct: 0.8, y1Pct: 0.9 },
+);
+check('a zero-area box is a tap, not a box', sanitisePrompts({ box: { x0Pct: 0.5, y0Pct: 0.5, x1Pct: 0.5, y1Pct: 0.5 } }).box === undefined);
+check(
+  'the number of taps is bounded',
+  (sanitisePrompts({ points: Array.from({ length: 100 }, () => ({ xPct: 0.5, yPct: 0.5, label: 1 })) }).points?.length ?? 0) === 24,
+);
+eq('the text prompt is trimmed and bounded', sanitisePrompts({ text: `  ${'x'.repeat(100)}  ` }).text?.length, 60);
+
+// ---------------------------------------------------------------------------
+// Mask selection (spec §3.1) — replaces "smallest mask under the HSV centroid"
+// ---------------------------------------------------------------------------
+
+const candidates = [
+  { score: 0.95, pointHits: [false, false] }, // the coin: highest score, misses the tap
+  { score: 0.7, pointHits: [true, false] }, // the wound: contains the +, avoids the −
+  { score: 0.8, pointHits: [true, true] }, // wound + leg: contains the − too
+];
+eq('a mask that misses a + or contains a − is dropped; best survivor wins', selectByPrompts(candidates, [1, 0]), { index: 1, conflict: false });
+eq('with no taps, the highest score wins', selectByPrompts(candidates, []), { index: 0, conflict: false });
+eq(
+  'when nothing satisfies the taps, the top score is taken and a conflict reported',
+  selectByPrompts([{ score: 0.9, pointHits: [false] }, { score: 0.6, pointHits: [false] }], [1]),
+  { index: 0, conflict: true },
+);
+check('no masks → no selection', selectByPrompts([], [1]) === null);
+eq('a missing score ranks below any real one', selectByPrompts([{ score: null, pointHits: [] }, { score: 0.1, pointHits: [] }], []), {
+  index: 1,
+  conflict: false,
+});
+
+// ---------------------------------------------------------------------------
+// FUSegNet second opinion (spec §6.4)
+// ---------------------------------------------------------------------------
+
+check('the default trigger runs on a foot wound', shouldRunSecondOpinion(undefined, 'heel_left') === true);
+check('the default trigger skips a leg wound', shouldRunSecondOpinion(undefined, 'lower_leg_left') === false);
+check('the default trigger skips an unknown location', shouldRunSecondOpinion('foot', null) === false);
+check('FUSEGNET_TRIGGER=all runs everywhere', shouldRunSecondOpinion('all', 'lower_leg_left') === true);
+check('an unknown trigger value runs nowhere', shouldRunSecondOpinion('sometimes', 'foot_left') === false);
+
+eq('a centred box converts to pixels', cxcywhToPixelBox([0.5, 0.5, 0.5, 0.5], { width: 200, height: 100 }), [50, 25, 150, 75]);
+eq('a box past the frame edge is clamped', cxcywhToPixelBox([0.9, 0.1, 0.4, 0.4], { width: 100, height: 100 }), [70, 0, 99, 30]);
+check('a zero-area box is null', cxcywhToPixelBox([0.5, 0.5, 0, 0.2], { width: 100, height: 100 }) === null);
+check('a malformed box is null', cxcywhToPixelBox([0.5, NaN, 0.2, 0.2], { width: 100, height: 100 }) === null);
+
+const boxMask = new Uint8Array(10 * 10);
+for (let y = 2; y < 6; y += 1) for (let x = 4; x < 8; x += 1) boxMask[y * 10 + x] = 255;
+check(
+  'a mask box is its set pixels, normalised cxcywh',
+  (maskBoxCxcywh(boxMask, 10, 10) ?? []).every((v, i) => Math.abs(v - [0.6, 0.4, 0.4, 0.4][i]) < 1e-9),
+  maskBoxCxcywh(boxMask, 10, 10),
+);
+check('an empty mask has no box', maskBoxCxcywh(new Uint8Array(100), 10, 10) === null);
+eq('and that box round-trips to the same pixels', cxcywhToPixelBox(maskBoxCxcywh(boxMask, 10, 10)!, { width: 10, height: 10 }), [4, 2, 8, 6]);
+
+eq('IoU ≥ 0.80 agrees: high', agreementConfidence({ iou: 0.85, multipleRegions: false, regionsKept: 1 }), 'high');
+eq('IoU 0.50–0.80: medium', agreementConfidence({ iou: 0.6, multipleRegions: false, regionsKept: 1 }), 'medium');
+eq('IoU < 0.50: low', agreementConfidence({ iou: 0.3, multipleRegions: false, regionsKept: 1 }), 'low');
+eq('several regions: low whatever the IoU', agreementConfidence({ iou: 0.95, multipleRegions: true, regionsKept: 2 }), 'low');
+eq('FUSegNet kept nothing: low', agreementConfidence({ iou: 0.9, multipleRegions: false, regionsKept: 0 }), 'low');
+eq('no IoU: low', agreementConfidence({ iou: null, multipleRegions: null, regionsKept: null }), 'low');
 
 // ---------------------------------------------------------------------------
 // Mask plausibility — the guard that stops a mask of the whole leg being measured

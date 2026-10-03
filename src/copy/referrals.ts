@@ -21,6 +21,16 @@ export type ReferralCopy = {
 };
 
 export const REFERRAL_COPY: Record<string, ReferralCopy> = {
+  deep_structures_visible: {
+    title: 'Something deep may be showing in the wound',
+    whatThisMeans: 'The photo looks like bone, tendon or a deep cavity may be visible. A wound this deep can lead to a bone infection.',
+    whatToDo: 'Get medical help today. Do not wait to see if it improves.',
+  },
+  undermining_tunnelling: {
+    title: 'The wound goes under the skin edge',
+    whatThisMeans: 'Tunnels or pockets under the edge can hide infection and slow healing.',
+    whatToDo: 'Ask for the wound to be reviewed by a wound care team.',
+  },
   probe_to_bone: {
     title: 'This wound may reach the bone',
     whatThisMeans: 'A wound deep enough to touch bone can lead to a bone infection.',

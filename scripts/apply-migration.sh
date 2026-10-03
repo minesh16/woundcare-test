@@ -27,11 +27,17 @@ fi
 eval "$(node scripts/pg-env.mjs)"
 
 echo "Connecting to ${PGHOST}:${PGPORT}/${PGDATABASE} as ${PGUSER}…"
-echo "Applying supabase/migrations/0001_assessments.sql…"
-psql -v ON_ERROR_STOP=1 -f supabase/migrations/0001_assessments.sql
+# Every migration, in filename order. Each one is idempotent.
+for migration in supabase/migrations/*.sql; do
+  echo "Applying ${migration}…"
+  psql -v ON_ERROR_STOP=1 -f "${migration}"
+done
 echo
 echo "Tables now present:"
 psql -c "\dt public.*"
 echo
 echo "Confirming audit_log cannot be updated or deleted by anon/authenticated:"
 psql -c "select grantee, privilege_type from information_schema.role_table_grants where table_name = 'audit_log' and grantee in ('anon','authenticated') order by grantee, privilege_type;"
+echo
+echo "Confirming segmentation_corrections is insert-only for anon:"
+psql -c "select grantee, privilege_type from information_schema.role_table_grants where table_name = 'segmentation_corrections' and grantee in ('anon','authenticated') order by grantee, privilege_type;"

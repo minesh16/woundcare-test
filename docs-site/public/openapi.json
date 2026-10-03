@@ -1,0 +1,2553 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "MendWise module API",
+    "version": "v1",
+    "description": "SANDBOX — investigational, NOT FOR CLINICAL USE. Synthetic or public images only. Every response carries `regulatory_status: \"investigational\"`; production access starts after ARTG inclusion. Clinician review is enforced by the API: /measure, /tissue, /vlm-features and /run require an approval_id from /approve, bound to the image and the final mask."
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "ApiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-api-key",
+        "description": "Scopes: segment, approve, measure, tissue, vlm, evaluate, report, run, baseline, analyze, or *."
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "code",
+              "message",
+              "request_id"
+            ],
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "request_id": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "Envelope": {
+        "type": "object",
+        "description": "Fields present on every successful response, alongside the endpoint's own fields.",
+        "properties": {
+          "request_id": {
+            "type": "string"
+          },
+          "api_version": {
+            "type": "string",
+            "const": "v1"
+          },
+          "engine_version": {
+            "type": "string"
+          },
+          "model_versions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "regulatory_status": {
+            "type": "string",
+            "const": "investigational"
+          },
+          "degraded": {
+            "type": "boolean",
+            "description": "A step degraded (e.g. a model was unavailable); `reason` says which."
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/api/v1/assessments/segment": {
+      "post": {
+        "summary": "draft wound outline (SAM 3; FUSegNet second opinion on foot wounds; HSV fallback).",
+        "description": "POST /segment — draft wound outline (SAM 3; FUSegNet second opinion on foot wounds; HSV fallback).",
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "x-scope": "segment",
+        "x-requires-approval": false,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "description": "Replays the original response for 24 h."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "base64": {
+                    "type": "string",
+                    "minLength": 100,
+                    "maxLength": 8000000,
+                    "description": "JPEG or PNG, base64 or a data URI. Send the SAME bytes to every call for one assessment: approvals bind to their hash."
+                  },
+                  "prompts": {
+                    "type": "object",
+                    "properties": {
+                      "text": {
+                        "description": "Concept prompt; default \"wound\".",
+                        "type": "string",
+                        "maxLength": 60
+                      },
+                      "points": {
+                        "maxItems": 24,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "xPct": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "yPct": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "label": {
+                              "anyOf": [
+                                {
+                                  "type": "number",
+                                  "const": 0
+                                },
+                                {
+                                  "type": "number",
+                                  "const": 1
+                                }
+                              ],
+                              "description": "1 = include, 0 = exclude"
+                            }
+                          },
+                          "required": [
+                            "xPct",
+                            "yPct",
+                            "label"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "box": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "x0Pct": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1
+                              },
+                              "y0Pct": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1
+                              },
+                              "x1Pct": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1
+                              },
+                              "y1Pct": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1
+                              }
+                            },
+                            "required": [
+                              "x0Pct",
+                              "y0Pct",
+                              "x1Pct",
+                              "y1Pct"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "additionalProperties": false,
+                    "description": "Clinician prompts from the review screen. Fractional coordinates of the image."
+                  },
+                  "body_zone": {
+                    "description": "Body zone id, e.g. foot_left. Decides whether FUSegNet gives a second opinion.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 40
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "assessment_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  }
+                },
+                "required": [
+                  "base64"
+                ],
+                "additionalProperties": false,
+                "description": "POST /segment — draft wound outline (SAM 3; FUSegNet second opinion on foot wounds; HSV fallback)."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON or a body that does not match this contract.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or unknown API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Key not scoped for this module, or a production key (not active until ARTG inclusion).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited. See Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/assessments/mask": {
+      "post": {
+        "summary": "rasterise a clinician polygon (fractional) to a PNG mask.",
+        "description": "POST /mask — rasterise a clinician polygon (fractional) to a PNG mask.",
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "x-scope": "segment",
+        "x-requires-approval": false,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "description": "Replays the original response for 24 h."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "polygon": {
+                    "minItems": 3,
+                    "maxItems": 400,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "x": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        "y": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        }
+                      },
+                      "required": [
+                        "x",
+                        "y"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "width": {
+                    "type": "integer",
+                    "minimum": 16,
+                    "maximum": 2048
+                  },
+                  "height": {
+                    "type": "integer",
+                    "minimum": 16,
+                    "maximum": 2048
+                  },
+                  "approval": {
+                    "type": "string",
+                    "enum": [
+                      "adjusted",
+                      "drawn"
+                    ]
+                  },
+                  "assessment_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  }
+                },
+                "required": [
+                  "polygon"
+                ],
+                "additionalProperties": false,
+                "description": "POST /mask — rasterise a clinician polygon (fractional) to a PNG mask."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON or a body that does not match this contract.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or unknown API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Key not scoped for this module, or a production key (not active until ARTG inclusion).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited. See Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/assessments/approve": {
+      "post": {
+        "summary": "clinician sign-off of the final mask. Returns approval_id; writes the correction log.",
+        "description": "POST /approve — clinician sign-off of the final mask. Returns approval_id; writes the correction log.",
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "x-scope": "approve",
+        "x-requires-approval": false,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "description": "Replays the original response for 24 h."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "base64": {
+                    "type": "string",
+                    "minLength": 100,
+                    "maxLength": 8000000,
+                    "description": "JPEG or PNG, base64 or a data URI. Send the SAME bytes to every call for one assessment: approvals bind to their hash."
+                  },
+                  "assessment_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "approval": {
+                    "type": "string",
+                    "enum": [
+                      "approved",
+                      "adjusted",
+                      "drawn"
+                    ]
+                  },
+                  "final_mask": {
+                    "type": "string",
+                    "minLength": 20,
+                    "maxLength": 6000000,
+                    "description": "Binary PNG mask (white = wound) as a data URI. https URLs are accepted only from fal.media."
+                  },
+                  "ai_mask": {
+                    "description": "The model draft, to compute the correction IoU. Null when drawn from scratch.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 20,
+                        "maxLength": 6000000,
+                        "description": "Binary PNG mask (white = wound) as a data URI. https URLs are accepted only from fal.media."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "clinician_id": {
+                    "description": "The caller's own opaque clinician identifier.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 80
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "provider": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "sam3",
+                          "fusegnet",
+                          "hsv"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "model": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 80
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "confidence": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "high",
+                          "medium",
+                          "low"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "score": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "edits": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 10000
+                  },
+                  "taps": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 10000
+                  },
+                  "box_used": {
+                    "type": "boolean"
+                  },
+                  "ms_to_approve": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 86400000
+                  },
+                  "image_source": {
+                    "type": "string",
+                    "enum": [
+                      "public_dataset",
+                      "synthetic",
+                      "consented_demo"
+                    ]
+                  },
+                  "body_zone": {
+                    "description": "Body zone id, e.g. foot_left. Decides whether FUSegNet gives a second opinion.",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 40
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "monk_tone": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 10
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "second_opinion": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "ok",
+                              "unavailable"
+                            ]
+                          },
+                          "agreement_iou": {
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "regions": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "propertyNames": {
+                                  "type": "string"
+                                },
+                                "additionalProperties": {
+                                  "type": [
+                                    "number",
+                                    "boolean"
+                                  ]
+                                }
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "mean_prob": {
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          },
+                          "latency_ms": {
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "status"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "base64",
+                  "assessment_id",
+                  "approval",
+                  "final_mask"
+                ],
+                "additionalProperties": false,
+                "description": "POST /approve — clinician sign-off of the final mask. Returns approval_id; writes the correction log."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON or a body that does not match this contract.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or unknown API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Key not scoped for this module, or a production key (not active until ARTG inclusion).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited. See Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/assessments/measure": {
+      "post": {
+        "summary": "area, length, width, perimeter, px/cm, white balance and tissue inside the approved mask.",
+        "description": "POST /measure — area, length, width, perimeter, px/cm, white balance and tissue inside the approved mask.",
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "x-scope": "measure",
+        "x-requires-approval": true,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "description": "Replays the original response for 24 h."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "base64": {
+                    "type": "string",
+                    "minLength": 100,
+                    "maxLength": 8000000,
+                    "description": "JPEG or PNG, base64 or a data URI. Send the SAME bytes to every call for one assessment: approvals bind to their hash."
+                  },
+                  "mask": {
+                    "type": "string",
+                    "minLength": 20,
+                    "maxLength": 6000000,
+                    "description": "Binary PNG mask (white = wound) as a data URI. https URLs are accepted only from fal.media."
+                  },
+                  "approval_id": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 64,
+                    "description": "From POST /approve. Required by every image module."
+                  },
+                  "include_coin_reference": {
+                    "description": "False when there is no coin in the photo. Default true.",
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "base64",
+                  "mask",
+                  "approval_id"
+                ],
+                "additionalProperties": false,
+                "description": "POST /measure — area, length, width, perimeter, px/cm, white balance and tissue inside the approved mask."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON or a body that does not match this contract.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or unknown API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Key not scoped for this module, a production key, or a missing / invalid / mismatched approval_id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited. See Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/assessments/tissue": {
+      "post": {
+        "summary": "tissue percentages inside the approved mask.",
+        "description": "POST /tissue — tissue percentages inside the approved mask.",
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "x-scope": "tissue",
+        "x-requires-approval": true,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "description": "Replays the original response for 24 h."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "base64": {
+                    "type": "string",
+                    "minLength": 100,
+                    "maxLength": 8000000,
+                    "description": "JPEG or PNG, base64 or a data URI. Send the SAME bytes to every call for one assessment: approvals bind to their hash."
+                  },
+                  "mask": {
+                    "type": "string",
+                    "minLength": 20,
+                    "maxLength": 6000000,
+                    "description": "Binary PNG mask (white = wound) as a data URI. https URLs are accepted only from fal.media."
+                  },
+                  "approval_id": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 64,
+                    "description": "From POST /approve. Required by every image module."
+                  }
+                },
+                "required": [
+                  "base64",
+                  "mask",
+                  "approval_id"
+                ],
+                "additionalProperties": false,
+                "description": "POST /tissue — tissue percentages inside the approved mask."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON or a body that does not match this contract.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or unknown API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Key not scoped for this module, a production key, or a missing / invalid / mismatched approval_id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited. See Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/assessments/vlm-features": {
+      "post": {
+        "summary": "caged enum observations from the photo and crops of the approved mask.",
+        "description": "POST /vlm-features — caged enum observations from the photo and crops of the approved mask.",
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "x-scope": "vlm",
+        "x-requires-approval": true,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "description": "Replays the original response for 24 h."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "base64": {
+                    "type": "string",
+                    "minLength": 100,
+                    "maxLength": 8000000,
+                    "description": "JPEG or PNG, base64 or a data URI. Send the SAME bytes to every call for one assessment: approvals bind to their hash."
+                  },
+                  "mask": {
+                    "type": "string",
+                    "minLength": 20,
+                    "maxLength": 6000000,
+                    "description": "Binary PNG mask (white = wound) as a data URI. https URLs are accepted only from fal.media."
+                  },
+                  "approval_id": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 64,
+                    "description": "From POST /approve. Required by every image module."
+                  },
+                  "tissue_summary": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {}
+                  }
+                },
+                "required": [
+                  "base64",
+                  "mask",
+                  "approval_id"
+                ],
+                "additionalProperties": false,
+                "description": "POST /vlm-features — caged enum observations from the photo and crops of the approved mask."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON or a body that does not match this contract.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or unknown API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Key not scoped for this module, a production key, or a missing / invalid / mismatched approval_id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited. See Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/assessments/evaluate": {
+      "post": {
+        "summary": "the deterministic engine. No image.",
+        "description": "POST /evaluate — the deterministic engine. No image.",
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "x-scope": "evaluate",
+        "x-requires-approval": false,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "description": "Replays the original response for 24 h."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "inputs": {
+                    "type": "object",
+                    "properties": {
+                      "tissue": {
+                        "type": "object",
+                        "properties": {
+                          "necrosis": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 100
+                          },
+                          "slough": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 100
+                          },
+                          "granulation": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 100
+                          },
+                          "epithelial": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 100
+                          },
+                          "other": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 100
+                          }
+                        },
+                        "required": [
+                          "necrosis",
+                          "slough",
+                          "granulation",
+                          "epithelial",
+                          "other"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "perfusion": {
+                        "type": "string",
+                        "enum": [
+                          "ischaemic",
+                          "non_ischaemic",
+                          "unknown"
+                        ]
+                      },
+                      "exudate": {
+                        "type": "string",
+                        "enum": [
+                          "low",
+                          "moderate",
+                          "high"
+                        ]
+                      },
+                      "infection": {
+                        "type": "string",
+                        "enum": [
+                          "yes",
+                          "no"
+                        ]
+                      },
+                      "molnlycke": {
+                        "type": "object",
+                        "properties": {
+                          "hardToHeal": {
+                            "type": "boolean"
+                          },
+                          "diabeticFootUlcer": {
+                            "type": "boolean"
+                          },
+                          "probeToBone": {
+                            "type": "boolean"
+                          },
+                          "abpi": {
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 3
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "diabetes": {
+                            "type": "boolean"
+                          },
+                          "lossOfProtectiveSensation": {
+                            "type": "boolean"
+                          },
+                          "systemicInfection": {
+                            "type": "boolean"
+                          },
+                          "spreadingErythemaOver2cm": {
+                            "type": "boolean"
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      "cvConfidence": {
+                        "type": "string",
+                        "enum": [
+                          "high",
+                          "medium",
+                          "low"
+                        ]
+                      },
+                      "markerFound": {
+                        "type": "boolean"
+                      },
+                      "vlm": {
+                        "type": "object",
+                        "properties": {
+                          "infectionSigns": {
+                            "type": "object",
+                            "properties": {
+                              "erythema": {
+                                "type": "string",
+                                "enum": [
+                                  "present",
+                                  "absent",
+                                  "uncertain"
+                                ]
+                              },
+                              "warmth": {
+                                "type": "string",
+                                "enum": [
+                                  "present",
+                                  "absent",
+                                  "uncertain"
+                                ]
+                              },
+                              "purulent": {
+                                "type": "string",
+                                "enum": [
+                                  "present",
+                                  "absent",
+                                  "uncertain"
+                                ]
+                              },
+                              "malodour": {
+                                "type": "string",
+                                "enum": [
+                                  "present",
+                                  "absent",
+                                  "uncertain"
+                                ]
+                              },
+                              "friableGranulation": {
+                                "type": "string",
+                                "enum": [
+                                  "present",
+                                  "absent",
+                                  "uncertain"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "erythema",
+                              "warmth",
+                              "purulent",
+                              "malodour",
+                              "friableGranulation"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "deepStructuresVisible": {
+                            "type": "string",
+                            "enum": [
+                              "present",
+                              "absent",
+                              "uncertain"
+                            ]
+                          },
+                          "edgeType": {
+                            "type": "string",
+                            "enum": [
+                              "healthy",
+                              "rolled_epibole",
+                              "undermined",
+                              "callused",
+                              "macerated",
+                              "uncertain"
+                            ]
+                          },
+                          "visualExudate": {
+                            "type": "string",
+                            "enum": [
+                              "none",
+                              "low",
+                              "moderate",
+                              "high",
+                              "very_high",
+                              "uncertain"
+                            ]
+                          },
+                          "tissueCorroboration": {
+                            "type": "string",
+                            "enum": [
+                              "agrees",
+                              "disagrees",
+                              "uncertain"
+                            ]
+                          },
+                          "imageFlags": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": [
+                                "low_light",
+                                "blur",
+                                "no_marker"
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "infectionSigns",
+                          "edgeType",
+                          "visualExudate",
+                          "tissueCorroboration",
+                          "imageFlags"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "periwound": {
+                        "type": "object",
+                        "properties": {
+                          "rednessPct": {
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 100
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "maceration": {
+                            "type": [
+                              "boolean",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "rednessPct",
+                          "maceration"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "manualSizeProvided": {
+                        "type": "boolean"
+                      },
+                      "tissueOverride": {
+                        "type": "string",
+                        "enum": [
+                          "necrotic",
+                          "slough",
+                          "granulating",
+                          "epithelialising"
+                        ]
+                      },
+                      "clinical": {
+                        "type": "object",
+                        "properties": {
+                          "palpatedWarmth": {
+                            "type": "string",
+                            "enum": [
+                              "cooler",
+                              "same",
+                              "warmer",
+                              "hot"
+                            ]
+                          },
+                          "induration": {
+                            "type": "string",
+                            "enum": [
+                              "yes",
+                              "no",
+                              "unsure"
+                            ]
+                          },
+                          "oedema": {
+                            "type": "string",
+                            "enum": [
+                              "yes",
+                              "no",
+                              "unsure"
+                            ]
+                          },
+                          "underminingTunnelling": {
+                            "type": "string",
+                            "enum": [
+                              "yes",
+                              "no",
+                              "unsure"
+                            ]
+                          },
+                          "underminingClock": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 12
+                          },
+                          "depthMm": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 200
+                          },
+                          "monkTone": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 10
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "tissue"
+                    ],
+                    "additionalProperties": false,
+                    "description": "Deterministic engine inputs. See src/decision/engine.types.ts."
+                  },
+                  "assessment_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  }
+                },
+                "required": [
+                  "inputs"
+                ],
+                "additionalProperties": false,
+                "description": "POST /evaluate — the deterministic engine. No image."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON or a body that does not match this contract.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or unknown API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Key not scoped for this module, or a production key (not active until ARTG inclusion).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited. See Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/assessments/report": {
+      "post": {
+        "summary": "narrative from already-decided facts, cage-checked.",
+        "description": "POST /report — narrative from already-decided facts, cage-checked.",
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "x-scope": "report",
+        "x-requires-approval": false,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "description": "Replays the original response for 24 h."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {},
+                    "description": "An EngineResult from /evaluate or /run."
+                  },
+                  "area_cm2": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 10000
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "body_zone_label": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 60
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "tissue_pct": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "granulation": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 100
+                          },
+                          "slough": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 100
+                          },
+                          "necrosis": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 100
+                          },
+                          "epithelial": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 100
+                          }
+                        },
+                        "required": [
+                          "granulation",
+                          "slough",
+                          "necrosis",
+                          "epithelial"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "result"
+                ],
+                "additionalProperties": false,
+                "description": "POST /report — narrative from already-decided facts, cage-checked."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON or a body that does not match this contract.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or unknown API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Key not scoped for this module, or a production key (not active until ARTG inclusion).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited. See Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/assessments/run": {
+      "post": {
+        "summary": "tissue → image review → engine → report, streamed. Requires an approval: no auto-approval.",
+        "description": "POST /run — tissue → image review → engine → report, streamed. Requires an approval: no auto-approval.",
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "x-scope": "run",
+        "x-requires-approval": true,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "description": "Replays the original response for 24 h."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "base64": {
+                    "type": "string",
+                    "minLength": 100,
+                    "maxLength": 8000000,
+                    "description": "JPEG or PNG, base64 or a data URI. Send the SAME bytes to every call for one assessment: approvals bind to their hash."
+                  },
+                  "mask": {
+                    "type": "string",
+                    "minLength": 20,
+                    "maxLength": 6000000,
+                    "description": "Binary PNG mask (white = wound) as a data URI. https URLs are accepted only from fal.media."
+                  },
+                  "approval_id": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 64,
+                    "description": "From POST /approve. Required by every image module."
+                  },
+                  "inputs": {
+                    "type": "object",
+                    "properties": {
+                      "tissue": {
+                        "type": "object",
+                        "properties": {
+                          "necrosis": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 100
+                          },
+                          "slough": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 100
+                          },
+                          "granulation": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 100
+                          },
+                          "epithelial": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 100
+                          },
+                          "other": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 100
+                          }
+                        },
+                        "required": [
+                          "necrosis",
+                          "slough",
+                          "granulation",
+                          "epithelial",
+                          "other"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "perfusion": {
+                        "type": "string",
+                        "enum": [
+                          "ischaemic",
+                          "non_ischaemic",
+                          "unknown"
+                        ]
+                      },
+                      "exudate": {
+                        "type": "string",
+                        "enum": [
+                          "low",
+                          "moderate",
+                          "high"
+                        ]
+                      },
+                      "infection": {
+                        "type": "string",
+                        "enum": [
+                          "yes",
+                          "no"
+                        ]
+                      },
+                      "molnlycke": {
+                        "type": "object",
+                        "properties": {
+                          "hardToHeal": {
+                            "type": "boolean"
+                          },
+                          "diabeticFootUlcer": {
+                            "type": "boolean"
+                          },
+                          "probeToBone": {
+                            "type": "boolean"
+                          },
+                          "abpi": {
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 3
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "diabetes": {
+                            "type": "boolean"
+                          },
+                          "lossOfProtectiveSensation": {
+                            "type": "boolean"
+                          },
+                          "systemicInfection": {
+                            "type": "boolean"
+                          },
+                          "spreadingErythemaOver2cm": {
+                            "type": "boolean"
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      "cvConfidence": {
+                        "type": "string",
+                        "enum": [
+                          "high",
+                          "medium",
+                          "low"
+                        ]
+                      },
+                      "markerFound": {
+                        "type": "boolean"
+                      },
+                      "vlm": {
+                        "type": "object",
+                        "properties": {
+                          "infectionSigns": {
+                            "type": "object",
+                            "properties": {
+                              "erythema": {
+                                "type": "string",
+                                "enum": [
+                                  "present",
+                                  "absent",
+                                  "uncertain"
+                                ]
+                              },
+                              "warmth": {
+                                "type": "string",
+                                "enum": [
+                                  "present",
+                                  "absent",
+                                  "uncertain"
+                                ]
+                              },
+                              "purulent": {
+                                "type": "string",
+                                "enum": [
+                                  "present",
+                                  "absent",
+                                  "uncertain"
+                                ]
+                              },
+                              "malodour": {
+                                "type": "string",
+                                "enum": [
+                                  "present",
+                                  "absent",
+                                  "uncertain"
+                                ]
+                              },
+                              "friableGranulation": {
+                                "type": "string",
+                                "enum": [
+                                  "present",
+                                  "absent",
+                                  "uncertain"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "erythema",
+                              "warmth",
+                              "purulent",
+                              "malodour",
+                              "friableGranulation"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "deepStructuresVisible": {
+                            "type": "string",
+                            "enum": [
+                              "present",
+                              "absent",
+                              "uncertain"
+                            ]
+                          },
+                          "edgeType": {
+                            "type": "string",
+                            "enum": [
+                              "healthy",
+                              "rolled_epibole",
+                              "undermined",
+                              "callused",
+                              "macerated",
+                              "uncertain"
+                            ]
+                          },
+                          "visualExudate": {
+                            "type": "string",
+                            "enum": [
+                              "none",
+                              "low",
+                              "moderate",
+                              "high",
+                              "very_high",
+                              "uncertain"
+                            ]
+                          },
+                          "tissueCorroboration": {
+                            "type": "string",
+                            "enum": [
+                              "agrees",
+                              "disagrees",
+                              "uncertain"
+                            ]
+                          },
+                          "imageFlags": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": [
+                                "low_light",
+                                "blur",
+                                "no_marker"
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "infectionSigns",
+                          "edgeType",
+                          "visualExudate",
+                          "tissueCorroboration",
+                          "imageFlags"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "periwound": {
+                        "type": "object",
+                        "properties": {
+                          "rednessPct": {
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 100
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "maceration": {
+                            "type": [
+                              "boolean",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "rednessPct",
+                          "maceration"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "manualSizeProvided": {
+                        "type": "boolean"
+                      },
+                      "tissueOverride": {
+                        "type": "string",
+                        "enum": [
+                          "necrotic",
+                          "slough",
+                          "granulating",
+                          "epithelialising"
+                        ]
+                      },
+                      "clinical": {
+                        "type": "object",
+                        "properties": {
+                          "palpatedWarmth": {
+                            "type": "string",
+                            "enum": [
+                              "cooler",
+                              "same",
+                              "warmer",
+                              "hot"
+                            ]
+                          },
+                          "induration": {
+                            "type": "string",
+                            "enum": [
+                              "yes",
+                              "no",
+                              "unsure"
+                            ]
+                          },
+                          "oedema": {
+                            "type": "string",
+                            "enum": [
+                              "yes",
+                              "no",
+                              "unsure"
+                            ]
+                          },
+                          "underminingTunnelling": {
+                            "type": "string",
+                            "enum": [
+                              "yes",
+                              "no",
+                              "unsure"
+                            ]
+                          },
+                          "underminingClock": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 12
+                          },
+                          "depthMm": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 200
+                          },
+                          "monkTone": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 10
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "tissue"
+                    ],
+                    "additionalProperties": false,
+                    "description": "Deterministic engine inputs. See src/decision/engine.types.ts."
+                  },
+                  "px_per_cm": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 10000
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "area_cm2": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 10000
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "body_zone_label": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 60
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "wound_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 80
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "base64",
+                  "mask",
+                  "approval_id",
+                  "inputs"
+                ],
+                "additionalProperties": false,
+                "description": "POST /run — tissue → image review → engine → report, streamed. Requires an approval: no auto-approval."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Server-Sent Events: meta, step, decision, result.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON or a body that does not match this contract.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or unknown API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Key not scoped for this module, a production key, or a missing / invalid / mismatched approval_id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited. See Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/assessments/correction": {
+      "post": {
+        "summary": "record the tissue confirmation against an approval's correction row.",
+        "description": "POST /correction — record the tissue confirmation against an approval's correction row.",
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "x-scope": "approve",
+        "x-requires-approval": false,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "description": "Replays the original response for 24 h."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "correction_id": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 64
+                  },
+                  "tissue_auto": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "necrotic",
+                          "slough",
+                          "granulating",
+                          "epithelialising"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "tissue_final": {
+                    "type": "string",
+                    "enum": [
+                      "necrotic",
+                      "slough",
+                      "granulating",
+                      "epithelialising"
+                    ]
+                  },
+                  "wound_location": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 60
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "monk_tone": {
+                    "description": "Only for stratifying accuracy across skin tones.",
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 10
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "correction_id",
+                  "tissue_auto",
+                  "tissue_final"
+                ],
+                "additionalProperties": false,
+                "description": "POST /correction — record the tissue confirmation against an approval's correction row."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON or a body that does not match this contract.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or unknown API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Key not scoped for this module, or a production key (not active until ARTG inclusion).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited. See Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/assessments/create": {
+      "post": {
+        "summary": "start an assessment record.",
+        "description": "POST /create — start an assessment record.",
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "x-scope": "run",
+        "x-requires-approval": false,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "description": "Replays the original response for 24 h."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "wound_id": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 80
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "description": "POST /create — start an assessment record."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON or a body that does not match this contract.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or unknown API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Key not scoped for this module, or a production key (not active until ARTG inclusion).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited. See Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/assessments/baseline": {
+      "post": {
+        "summary": "the deliberately ungrounded comparison arm.",
+        "description": "POST /baseline — the deliberately ungrounded comparison arm.",
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "x-scope": "baseline",
+        "x-requires-approval": false,
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "description": "Replays the original response for 24 h."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "base64": {
+                    "type": "string",
+                    "minLength": 100,
+                    "maxLength": 8000000,
+                    "description": "JPEG or PNG, base64 or a data URI. Send the SAME bytes to every call for one assessment: approvals bind to their hash."
+                  }
+                },
+                "required": [
+                  "base64"
+                ],
+                "additionalProperties": false,
+                "description": "POST /baseline — the deliberately ungrounded comparison arm."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid JSON or a body that does not match this contract.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or unknown API key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Key not scoped for this module, or a production key (not active until ARTG inclusion).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited. See Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/assessments/health": {
+      "get": {
+        "summary": "Status, configured capabilities, model and engine versions. No key needed.",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    }
+  }
+}

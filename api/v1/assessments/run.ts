@@ -1,77 +1,81 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+import type { VercelResponse } from '@vercel/node';
 
-import type { AssessmentState } from '../../../src/assessment/state';
+import { newAssessmentId, type AssessmentState } from '../../../src/assessment/state';
+import type { EngineInputs } from '../../../src/decision/engine.types';
+import { runInput } from '../../_contracts';
+import { endpoint } from '../../_http';
 import { runAssessment } from './_controller';
 
 /**
- * POST /api/v1/assessments/run — the whole pipeline, streamed.
+ * POST /api/v1/assessments/run — the whole pipeline over an APPROVED outline,
+ * streamed (Server-Sent Events).
  *
- * Emits `event: step` frames as each stage finishes, then a final
- * `event: result` carrying the assessment state. Streaming runs on the default
- * Node runtime (Fluid Compute) — there is no reason to reach for the edge
- * runtime here, and doing so would cost us the Node APIs the CV steps need.
+ *   event: meta      the envelope (request_id, versions, regulatory_status)
+ *   event: step      as each stage finishes
+ *   event: decision  the engine's result, as soon as it is made
+ *   event: result    the final assessment state (after the report)
+ *   event: error     the engine itself failed
  *
- * The stream is also the honest view of the pipeline: a degraded step says so
- * as it happens, rather than being hidden behind a single final answer.
+ * Requires an approval bound to this image and mask (403 otherwise) — there is
+ * no auto-approval (segmentation spec §6A.1). The record id is minted here
+ * (MW-02). maxDuration is in vercel.json.
  */
-
-// maxDuration is set in vercel.json — for plain Vercel Node functions (as
-// opposed to Next.js route handlers) that file is the authority, and having two
-// sources of truth for a timeout is how one of them ends up silently ignored.
 
 function send(res: VercelResponse, event: string, data: unknown): void {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
-  if (req.method !== 'POST') {
-    res.status(405).json({ error: 'Method not allowed' });
-    return;
-  }
-
-  const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body ?? {};
-  const base64 = String(body.base64 ?? '');
-  const engineInputs = body.inputs;
-
-  if (!base64 || !engineInputs?.tissue) {
-    res.status(400).json({ error: 'Missing image or engine inputs.' });
-    return;
-  }
-
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream; charset=utf-8',
-    'Cache-Control': 'no-cache, no-transform',
-    Connection: 'keep-alive',
-  });
-
-  const state: AssessmentState = body.state ?? {
-    id: `asmt-local-${Date.now()}`,
-    createdAt: new Date().toISOString(),
-  };
-
-  try {
-    const final = await runAssessment(
-      {
-        state,
-        base64,
-        engineInputs,
-        pxPerCm: body.pxPerCm ?? null,
-        areaCm2: body.areaCm2 ?? null,
-        bodyZoneLabel: body.bodyZoneLabel ?? null,
-        // A boundary the clinician reviewed. When present the chain is skipped —
-        // see RunInput.approvedBoundary for why re-segmenting would be wrong.
-        approvedBoundary: body.approvedBoundary ?? null,
-      },
-      (outcome) => send(res, 'step', outcome),
-    );
-    send(res, 'result', final);
-  } catch (error) {
-    // The engine step is the only one that can get us here; everything else
-    // degrades. Say so plainly rather than emitting a half-assessment.
-    send(res, 'error', {
-      message: error instanceof Error ? error.message : 'Assessment failed.',
+export default endpoint({
+  name: 'run',
+  scope: 'run',
+  input: runInput,
+  requiresApproval: true,
+  heavy: true,
+  stream: true,
+  handle: async (input, ctx) => {
+    const { res } = ctx;
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
     });
-  } finally {
-    res.end();
-  }
-}
+    send(res, 'meta', ctx.meta());
+
+    const state: AssessmentState = {
+      id: newAssessmentId(),
+      createdAt: new Date().toISOString(),
+      woundId: input.wound_id ?? null,
+      imageSha256: ctx.imageSha256,
+    };
+
+    let outcome: Record<string, unknown> = {};
+    let models: Record<string, string | null> = {};
+    let degraded = false;
+    try {
+      const final = await runAssessment(
+        {
+          state,
+          base64: input.base64,
+          engineInputs: input.inputs as EngineInputs,
+          pxPerCm: input.px_per_cm ?? null,
+          areaCm2: input.area_cm2 ?? null,
+          bodyZoneLabel: input.body_zone_label ?? null,
+          mask: input.mask,
+          approval: ctx.approval!,
+        },
+        (step) => send(res, 'step', step),
+        (decision) => send(res, 'decision', decision),
+      );
+      models = { vlm: final.vlmModel ?? null, llm: final.report?.model ?? null };
+      degraded = (final.steps ?? []).some((s) => s.status !== 'ok');
+      outcome = { status: final.result?.status, pathway: final.result?.cwcsPathwayId ?? null, assessmentId: final.id };
+      send(res, 'result', { ...final, ...ctx.meta(), model_versions: { ...ctx.meta().model_versions, ...models } });
+    } catch {
+      // The engine is the only step that can get here; everything else degrades.
+      send(res, 'error', { code: 'internal_error', message: 'The assessment could not be completed.', request_id: ctx.requestId });
+    } finally {
+      res.end();
+    }
+    return { streamed: true, models, degraded, outcome };
+  },
+});
