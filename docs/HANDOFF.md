@@ -359,6 +359,38 @@ this fallback chain, so it is flagged rather than quietly built.
 - `GET /api/v1/assessments/health` reports `segmentation.order`, per-provider `configured`,
   and `segmentation.active` — the first provider that will actually answer.
 
+### Running it locally — two traps that make a working build look broken
+`npx vercel dev` (the CLI is **not** installed globally; `npx` works, scope `replytic/mendwise`,
+already linked via the gitignored `.vercel/`) is the faithful test: Expo web build plus `/api`
+on one origin. But:
+
+1. **It injects the project's *Development* environment**, and every var on this project is
+   Production/Preview only. Straight `npx vercel dev` therefore boots with
+   `segmentation: false`, `store: false` and the `/docs` gate answering
+   `reason=unconfigured` — a configuration artefact that looks exactly like broken code.
+   Export the local env instead: `set -a; . ./.env.local; set +a; npx vercel dev`.
+2. **`EXPO_PUBLIC_ASSESSMENT_V2` is not in `.env.local`**, so `ASSESSMENT_V2` is false and
+   `segmentWoundUri()` returns `null` before it ever reaches the API. The app silently runs the
+   old HSV-only flow and segmentation appears to do nothing. Prefix with
+   `EXPO_PUBLIC_ASSESSMENT_V2=true`.
+
+With both applied, `GET /api/v1/assessments/health` locally reports
+`segmentation.active: "sam3"`, store true, and `/docs/` 302s to the gate *without*
+`reason=unconfigured`.
+
+**`npx vercel env ls` confirmed (3 Oct 2026):** `FAL_KEY`, `FUSEGNET_AUTH_TOKEN` and
+`FUSEGNET_MODAL_URL` are all present and correctly spelled on **Production and Preview**, and
+`REPLICATE_API_TOKEN` is gone. One gap: **`EXPO_PUBLIC_ASSESSMENT_V2` is Production-only**, so a
+*preview* deployment will run with V2 off and look like segmentation is broken there too.
+
+### Pre-existing: deep links 404 in production
+The Expo static export writes `capture.html`, `analyze.html`, … and `vercel.json` sets no
+`cleanUrls`, so `/capture` is a **404** and `/capture.html` a 200 — confirmed identically on
+`vercel dev` and on `mendwise.vercel.app`, so it predates this work. Client-side navigation from
+`/` is unaffected, which is why nobody has hit it; a hard refresh or a shared deep link on any
+route but `/` breaks. `"cleanUrls": true` in `vercel.json` is the one-line fix, deliberately not
+applied here as it is unrelated to segmentation.
+
 ### Local API dev server
 `npm run dev:api` (`scripts/dev-server.mts`, run under `tsx`) serves the `api/` files over
 HTTP on :3000. It exists because `npm run web` has **no** `/api` routes and `vercel dev` needs
@@ -385,8 +417,9 @@ imports (correctly — Vercel requires it) and Node's ESM resolver will not reso
 - `npm run smoke:live` — **15/15**, unchanged: the VLM, engine, report cage and Supabase
   round-trip are unaffected by any of this.
 
-**The whole pipeline, over HTTP, against the real handlers** (`npm run dev:api`, then
-`POST /api/v1/assessments/run`). Two runs, both complete:
+**The whole pipeline, over HTTP, against the real handlers.** Run three times — twice through
+`npm run dev:api` and once through `npx vercel dev` (the real Vercel function runtime), with the
+same outcome every time:
 
 | step | status | ms | note |
 |---|---|---|---|

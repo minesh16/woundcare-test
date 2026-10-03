@@ -11,10 +11,10 @@ Read both before non-trivial work. This is a **research prototype — not a medi
 
 ## The cage (do not violate)
 - **Determinism is authoritative.** The dressing/referral decision comes ONLY from the deterministic engine in `src/decision/engine.ts` (CWCS 26-pathway table + Mölnlycke triggers). AI never emits a pathway.
-- **AI is caged.** SAM 2 = boundary only; OpenCV HSI = tissue % only; frontier VLM = strict-JSON enums only (`generateObject` + Zod, `temperature: 0`); frontier LLM = narrate already-decided facts only.
+- **AI is caged.** Segmentation = boundary only (SAM 3 on fal.ai → FUSegNet on Modal); OpenCV HSI = tissue % only; frontier VLM = strict-JSON enums only (`generateObject` + Zod, `temperature: 0`); frontier LLM = narrate already-decided facts only.
 - **Additive, never destructive.** New work goes behind an `assessmentV2` flag + `/api/v1/assessments/*`; keep the existing capture→analyze→questions→result flow working.
 - **Conservative by default.** No marker / low confidence / conflicting signals → "incomplete → retake or escalate".
-- **No model fine-tuning.** Zero-shot models only.
+- **No model fine-tuning.** Pre-trained models only (zero-shot SAM, published FUSegNet weights). We train nothing.
 
 ## Engine invariants
 - Keep `src/decision/engine.ts` a single self-contained runtime file (types via `import type` from `engine.types.ts`) so `npm run test:rules` runs under `node --experimental-strip-types` with no build step.
@@ -22,7 +22,31 @@ Read both before non-trivial work. This is a **research prototype — not a medi
 - The 26 CWCS dressing strings are transcribed from a PDF image — verify against the source before graded use.
 
 ## Frontier models
-- Route VLM + LLM through **Vercel AI Gateway** (AI SDK `ai@^6`, `provider/model` strings, OIDC auth). Resolve model IDs via `getAvailableModels()`; don't hardcode. SAM 2 is NOT on the gateway — separate GPU endpoint (Replicate/Modal).
+- Route VLM + LLM through **Vercel AI Gateway** (AI SDK `ai@^6`, `provider/model` strings, OIDC auth). Resolve model IDs via `getAvailableModels()`; don't hardcode.
+- Segmentation is NOT on the gateway (it serves no GPU segmentation models). The chain is `api/_segmentation.ts`: **SAM 3** on fal.ai (`FAL_KEY`, concept prompt "wound") → **FUSegNet** on Modal (`FUSEGNET_MODAL_URL` + `FUSEGNET_AUTH_TOKEN`), order set by `SEGMENTATION_PROVIDERS`. SAM 2 on Replicate was removed — don't reintroduce it.
+- **FUSegNet has no abstain.** It returned a mask at `mean_prob` 0.95 on an image with no wound in it. Never read its score as "there is a wound here"; `maskPlausibility` is the guard.
+
+## Vercel CLI
+- **Not installed globally — use `npx vercel`** (54.15.1 as of 3 Oct 2026). `npm i -g vercel` if you want the bare command.
+- The project **is already linked**: `.vercel/project.json` holds `projectId` / `orgId` / `projectName`. That folder is **gitignored and must stay that way** — Vercel's own README says not to share it, so never paste those ids into a tracked file (this one included).
+- Scope is the **`replytic` team**, project `mendwise`. `npx vercel whoami` to confirm the account.
+- Commands that matter here:
+  - `npx vercel env ls` — **check names and environments, not just presence.** `SUPABASE_URL` once sat on the project as `SUABASE_URL` for two days; a misspelled var is indistinguishable from an absent one at runtime, and the health endpoint cannot tell you. Also check a var is on **Preview** as well as Production.
+  - `npx vercel env pull` — writes `.env.local` (OIDC token included). Gitignored.
+  - `npx vercel dev` — Expo web build + `/api` functions on **one origin**, which is the faithful local test (no CORS, real routing). **Two traps, both of which make a working build look broken:**
+    1. It injects the project's **Development** environment, and every var here is on Production/Preview only — so the functions start up with `segmentation: false`, `store: false` and the `/docs` gate reporting `reason=unconfigured`. Export `.env.local` into the process instead: `set -a; . ./.env.local; set +a; npx vercel dev`.
+    2. `EXPO_PUBLIC_ASSESSMENT_V2` is **not in `.env.local`**, so the flag defaults OFF and `segmentWoundUri()` returns `null` before it ever calls the API — the app silently runs the old HSV-only flow. Prefix the command with `EXPO_PUBLIC_ASSESSMENT_V2=true`.
+  - `npx vercel deploy` / `--prod`, `npx vercel logs <url>`.
+
+## Known production behaviour, not a local artefact
+- **Deep links 404.** The Expo static export writes `capture.html`, `analyze.html`, …, and `vercel.json` sets no `cleanUrls`, so `/capture` is a 404 in production and `/capture.html` is a 200 — verified against both `vercel dev` and `mendwise.vercel.app`. Client-side navigation from `/` is unaffected, which is why it has gone unnoticed; a hard refresh or a shared link on any route but `/` breaks. `"cleanUrls": true` in `vercel.json` is the fix. Don't "fix" it as a side effect of unrelated work.
+- **Env vars bind at deploy time.** Adding or renaming one does nothing until the next deploy.
+
+## Testing locally
+- `npm test` — five offline suites, no network. Must stay green.
+- `npm run dev:api` — serves `api/` on :3000 with **no CLI needed** (`scripts/dev-server.mts` under `tsx`). The only way to execute the deployed handlers' request/response wrappers without deploying. Mirrors Vercel's filesystem routing, including that a nested `api/**/index.ts` is NOT routed to its directory path.
+- `npx vercel dev` — the whole app, closest to production.
+- `npm run check:segmentation` / `check:gateway` / `smoke:live` — real network calls; need `.env.local`.
 
 ## Expo
 - Expo SDK 57 — read https://docs.expo.dev/versions/v57.0.0/ before writing Expo code (see `AGENTS.md`).
