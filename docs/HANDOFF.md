@@ -10,7 +10,7 @@
 ## The cage (non-negotiable invariants)
 
 1. **Determinism is authoritative.** The CWCS 26-pathway table + Mölnlycke triggers (`src/decision/engine.ts`) make the dressing/referral decision. AI only produces *inputs* and *narrates* outputs — it never emits a pathway.
-2. **AI is caged.** Segmentation = boundary (FUSegNet on Modal → SAM 3 on fal.ai → SAM 2 on Replicate); OpenCV HSI = tissue %; frontier VLM = strict-JSON enums only (`generateObject` + Zod, `temperature: 0`); frontier LLM = report from already-decided facts.
+2. **AI is caged.** Segmentation = boundary (SAM 3 on fal.ai → FUSegNet on Modal); OpenCV HSI = tissue %; frontier VLM = strict-JSON enums only (`generateObject` + Zod, `temperature: 0`); frontier LLM = report from already-decided facts.
 3. **Additive, never destructive.** New work sits behind an `assessmentV2` flag + `/api/v1/assessments/*`. The existing HSV flow stays as capture quality-gate + offline fallback + SAM prompt-seed.
 4. **Conservative by default.** No marker / low confidence / conflicting signals → "incomplete → retake or escalate", never a confident dressing call.
 5. **No model fine-tuning.** Pre-trained segmentation (zero-shot SAM, published FUSegNet weights) + frontier VLM/LLM. We train nothing.
@@ -45,16 +45,12 @@ calibration (`pxPerCm` through both pipelines), HSI tissue-% with an `epithelial
 perfusion/ABPI/infection questionnaire inputs, and photo upload. Details in git history; the
 carry-overs that mattered are closed below.
 
-**Superseded by the FUSegNet + SAM 3 section below.** SAM 2 on Replicate is now the
-*third* provider in a chain, not the only one. Everything in this section still describes
-how it behaves when it is reached.
-
-**Replicate call shape (still true, worth keeping):** `meta/sam-2` is a *versioned* model, so
-`_sam2.ts` resolves the latest version via `GET /v1/models/{model}` (cached) and creates the
-prediction via `POST /v1/predictions` with `{ version, input }` + `Prefer: wait`. The official-model
-endpoint returns **404** for versioned models. Pin with `SAM2_REPLICATE_VERSION` to skip the lookup.
-It is the *automatic* mask generator — no point/box prompt input — which is why `_maskSelect.ts`
-picks the wound mask by HSV centroid.
+**SAM 2 has since been REMOVED** (3 Oct 2026) — see the segmentation section below. It was
+the automatic mask generator, with no point/box prompt input, so it segmented everything in
+frame and the wound had to be guessed back out by HSV centroid in `_maskSelect.ts`. It did
+not work well enough to keep even as a fallback. `api/_sam2.ts` and `REPLICATE_API_TOKEN`
+are gone; Replicate is no longer a processor. Everything else in this section still holds:
+marker calibration, HSI tissue-%, the questionnaire inputs and photo upload are unchanged.
 
 ---
 
@@ -105,7 +101,7 @@ client bundle). With Supabase unset everything still works and the audit record 
   wound care guide (pathway N)" as provenance) → why → **Clinician view** toggle carrying the exact
   terms, pathway id, referral codes, gates and rules version.
 - Manufacturer name removed from the UI (it stays in the engine, types and docs as provenance).
-- Analyze screen: SAM 2 mask rendered as an overlay, plain tissue labels, technical detail behind a
+- Analyze screen: the model mask rendered as an overlay, plain tissue labels, technical detail behind a
   toggle. ABPI bands moved behind a clinician toggle on the questions screen.
 
 ### Verified live (21 Sep 2026)
@@ -150,7 +146,7 @@ client bundle). With Supabase unset everything still works and the audit record 
 |---|---|
 | Deterministic engine | ✅ always — never depends on anything below |
 | AI Gateway (VLM + report) | ✅ `openai/gpt-5` / `gemini-2.5-flash` on the free tier |
-| Segmentation | chain of three — see `segmentation.active` in the health response. SAM 2 was the only one until the FUSegNet + SAM 3 work below; `FUSEGNET_MODAL_URL` and `FAL_KEY` still need setting on the Vercel project |
+| Segmentation | SAM 3 → FUSegNet — see `segmentation.active` in the health response. `FAL_KEY` and `FUSEGNET_MODAL_URL` (+ its auth token) still need setting on the Vercel project |
 | Supabase persistence + audit | ✅ live since 23 Sep 2026 — rows are being written again |
 | Docs site at `/docs` | ✅ live, passphrase-gated (`DOCS_PASSPHRASE`) |
 
@@ -208,13 +204,13 @@ so the docs-check hook loads.
 - `npm run test:cage` — 15/15 schema + report-cage assertions, no network
 - `npm run test:copy` — terminology guard over `src/app`, `src/components`, `src/copy`
 - `npm run test:imports` — catches the alias-in-a-function bug above
-- `npm run test:segmentation` — **96/96** segmentation wire formats (see the section below)
+- `npm run test:segmentation` — **115/115** segmentation wire formats (see the section below)
 
 `npm run typecheck` — only the pre-existing `app-tabs.web.tsx` `/explore` error.
 
 Live checks (need `.env.local`, gitignored — see `supabase/README.md`):
 - `npm run check:gateway` — probes real model access per role
-- `npm run check:segmentation` — probes the FUSegNet and SAM 3 endpoints with a real call
+- `npm run check:segmentation` — probes the SAM 3 and FUSegNet endpoints with a real call
 - `npm run smoke:live` — real VLM + report call, engine, cage check, Supabase round-trip
 - `npm run db:migrate` — idempotent; applies the schema and prints the resulting grants
 
@@ -242,37 +238,71 @@ Live checks (need `.env.local`, gitignored — see `supabase/README.md`):
 
 ---
 
-## DONE — Segmentation backends: FUSegNet (Modal) + SAM 3 (fal.ai)
+## DONE — Segmentation backends: SAM 3 (fal.ai) + FUSegNet (Modal)
 
 The boundary step is no longer one model on one host. `api/_segmentation.ts` is a facade
-over three providers, tried in order (`SEGMENTATION_PROVIDERS`, default below):
+over two providers, tried in order (`SEGMENTATION_PROVIDERS`, default below):
 
 | Order | Provider | Host | Prompt | Returns |
 |---|---|---|---|---|
-| 1 | `fusegnet` | Modal (`FUSEGNET_MODAL_URL`) | none — wound-only model | one binary wound mask |
-| 2 | `sam3` | fal.ai `fal-ai/sam-3/image` | text concept `"wound"` + pixel point | every match, with scores |
-| 3 | `sam2` | Replicate `meta/sam-2` | none — automatic generator | everything in the frame |
+| 1 | `sam3` | fal.ai `fal-ai/sam-3/image` | text concept `"wound"` + pixel point | every match, with scores |
+| 2 | `fusegnet` | Modal (`FUSEGNET_MODAL_URL`) | none — wound-only model | one binary wound mask |
 
-**Why FUSegNet leads.** It is the only one of the three trained on wounds, so there is
-nothing to disambiguate: the "model segmented the foot, not the ulcer" failure that
-`_maskSelect.ts` exists to work around cannot happen. SAM 3 is the generalist second
-choice and does collapse the spec's optional V2 plan (§3: "Grounding DINO text-prompt
-'wound' → box → SAM 2") into a single call, because SAM 3 takes the noun phrase directly.
-SAM 2 stays, unchanged and working, as the third fallback — additive, never destructive.
+Below both, the fallback is the on-device HSV mask, as it always was.
+
+**Why SAM 3 leads.** FUSegNet is the more *specific* model, not the more *general* one: its
+training set is chronic **foot** ulcers, so it is the preferred boundary for DFUs and an
+unknown quantity on a venous leg ulcer or a pressure injury. Leading with the generalist and
+keeping the specialist behind it is the conservative order until the golden eval set says
+otherwise — and that decision is then one env var, not a code change. SAM 3's concept prompt
+also collapses the spec's optional V2 plan (§3: "Grounding DINO text-prompt 'wound' → box →
+SAM 2") into a single call, because SAM 3 takes the noun phrase directly.
+
+**SAM 2 on Replicate was removed, not demoted.** It was the *automatic* mask generator — no
+prompt input at all — so it segmented every object in the frame and the wound had to be
+recovered afterwards by HSV centroid. It did not work well enough to be worth keeping even
+as a fallback, so `api/_sam2.ts`, `REPLICATE_API_TOKEN` and the `SAM2_*` vars are gone.
+Consequence worth noting in the processor register: **Replicate is no longer a processor**;
+fal.ai and Modal are (see `docs/SECURITY_AUDIT.md` MW-07).
 
 ### Files
 - `api/_segmentationParse.ts` — **import-free**, like `engine.ts`, so `test:segmentation`
   can load it under `node --experimental-strip-types`. Holds the provider order parsing,
   the JPEG/PNG header reader, the request builders, the response parsers and the mask
   plausibility bounds. The HTTP adapters import *from* it; nothing imports *into* it.
-- `api/_fusegnet.ts` — Modal adapter. Proxy auth is `Modal-Key`/`Modal-Secret` when both
-  are set, else `Authorization: Bearer <FUSEGNET_AUTH_TOKEN>`, else unauthenticated.
 - `api/_sam3.ts` — fal adapter. Auth is `Authorization: Key <FAL_KEY>` (**not** `Bearer`).
+- `api/_fusegnet.ts` — Modal adapter.
 - `api/_segmentation.ts` — the chain: try, measure, reject, fall through, record attempts.
 - `api/v1/assessments/segment.ts` — the granular step the spec's §7 names and the repo
   was missing. Delegates to the same facade as `run`.
-- `api/_maskSelect.ts` — gained `maskStats()` and `totalPx` on a selection; still selects
-  by centroid for the two providers that return more than one mask.
+- `api/_maskSelect.ts` — gained `maskStats()` and `totalPx` on a selection; still the
+  disambiguator when SAM 3's concept prompt matches several regions.
+
+### The FUSegNet contract — verified, not assumed
+Read from the deployment's own schema (`GET {base}/openapi.json`, title "MendWise FUSegNet"):
+
+```
+GET  {base}/health   → { ok, model: "FUSegNet (efficientnet-b7, pscse)", size: 512 }
+POST {base}/segment  → { image_b64, box?: [x0,y0,x1,y1], size?: 512, debug?: false }
+                       + an optional `authorization` header the handler checks itself
+```
+
+Two things this cost, both now guarded by tests:
+- **`FUSEGNET_MODAL_URL` is the bare origin, which 404s.** The FastAPI app mounts its routes
+  beneath it, so `fusegnetUrl()` appends `/segment` unless the configured URL already has a
+  path (which lets one var pin the whole endpoint). `FUSEGNET_SEGMENT_PATH` overrides it.
+- **The field is `image_b64`, not `image`.** That is now the default.
+
+`/health` is hit first by the probe: it is free, it names the loaded weights, and it warms a
+cold container so the first real call does not absorb a model load and time out.
+
+**`box` is interesting.** The endpoint's own schema describes it as `[x0,y0,x1,y1]` "e.g.
+from SAM 3" — it was built to be *refined after* a box, not only run standalone. Nothing
+passes one yet, because in a fallback chain FUSegNet only runs when SAM 3 produced nothing to
+take a box from. It is plumbed through `buildFusegnetBody`/`fusegnetRequest` because it is
+part of the real contract, and because **SAM 3 box → FUSegNet mask refinement is the obvious
+next architecture** once the eval set exists. That would be a different pipeline shape from
+this fallback chain, so it is flagged rather than quietly built.
 
 ### Behaviour that is new, not just rewired
 - **A mask is measured before it is trusted.** `maskPlausibility` rejects a mask under
@@ -281,10 +311,11 @@ SAM 2 stays, unchanged and working, as the third fallback — additive, never de
   nothing after it can tell.
 - **Every attempt is recorded** (`attempts: [{provider, status, ms, reason}]`) and lands in
   the step summary, the API response and `audit_log.models.segmentationProvider`. A
-  boundary from the third fallback is a different result from the same photo; it should not
-  look identical.
+  boundary from the fallback provider is a different result from the same photo; it should
+  not look identical.
 - **`TissueSummary.maskSource` is now `'model' | 'hsv'`**, not `'sam2' | 'hsv'`, with the
-  provider in a separate `maskProvider` field. The tissue step is handed a mask, not a
+  provider in a separate `maskProvider` field (validated against the known set, because it
+  arrives over HTTP and ends up in the audit log). The tissue step is handed a mask, not a
   provider — it must not claim to know which model drew it.
 - **SAM 3's point prompt is in pixels.** Ours are fractional, so `imageSize()` reads the
   real dimensions from the JPEG/PNG header (no full decode) and the point is **omitted**
@@ -292,55 +323,74 @@ SAM 2 stays, unchanged and working, as the third fallback — additive, never de
   lands in the top-left corner of the photo and still returns a confident mask.
 - **`apply_mask: false` on the fal request.** With it true, fal composites the mask onto the
   photograph, and the HSI classifier would measure a composited photo as tissue.
-- `/api/segment` and `/api/v1/assessments/segment` have `maxDuration: 180` — three GPU
-  backends at 60 s each do not fit in 60.
+- `/api/segment` and `/api/v1/assessments/segment` have `maxDuration: 180` — two GPU
+  backends at a 60 s timeout each, plus mask fetch and decode, do not fit in 60.
 
 ### Verify
-- `npm run test:segmentation` — **96/96**, offline. Covers provider-order parsing, the
-  JPEG/PNG header reader, pixel conversion and clamping, both request shapes, both
-  response shapes (including fal `Image` unwrapping and `metadata` scores), the Modal auth
+- `npm run test:segmentation` — **115/115**, offline. Provider-order parsing (including that
+  the removed `sam2` is not accepted and does not disable segmentation), the JPEG/PNG header
+  reader, pixel conversion and clamping, both request shapes, URL joining, both response
+  shapes (fal `Image` unwrapping, `metadata` scores, ragged-score rejection), Modal auth
   precedence, and every plausibility bound.
-- `npm run check:segmentation` — **live** probe. Sends the request the adapters send (the
-  builders are shared, so the probe cannot verify a lookalike) and prints the endpoint's
-  actual response keys when nothing parses. `--image=path/to/wound.jpg` to probe with a
-  real photo; the synthetic image only tests the wire format.
-- `GET /api/v1/assessments/health` now reports `segmentation.order`, per-provider
-  `configured`, and `segmentation.active` — the first provider that will actually answer.
+- `npm run check:segmentation` — **live** probe, in chain order. Sends the request the
+  adapters send (the builders are shared, so the probe cannot verify a lookalike) and prints
+  the endpoint's actual response keys when nothing parses. `--image=path/to/wound.jpg` to
+  probe with a real photo; the synthetic image only tests the wire format.
+- `GET /api/v1/assessments/health` reports `segmentation.order`, per-provider `configured`,
+  and `segmentation.active` — the first provider that will actually answer.
+
+### Live results (3 Oct 2026, local `.env.local`)
+- **SAM 3 works end to end.** Request accepted, pixel point prompt placed, 1 mask returned
+  with score 0.803 in ~1.4–2.1 s, mask fetched from fal's CDN, decoded and measured at
+  8,111 px — against ~8,090 px of ellipse geometry in the synthetic probe image. A 0.3%
+  agreement, which is the proof that `apply_mask: false` really does return a **binary
+  mask** and not a composited photograph.
+- SAM 3 correctly returns **no match** for `"wound"` on the synthetic image (it is an
+  ellipse, not a wound). Probing the mask path needed `SAM3_PROMPT="red ellipse"`.
+- **FUSegNet is not yet proven.** `/health` is 200 and the model is loaded
+  (`efficientnet-b7, pscse`, size 512), and `/segment` is reached — but it answers
+  `401 {"detail":"unauthorised"}`, which is the handler's **own** check (lowercase, British
+  spelling; Modal proxy auth would not word it that way), matching the optional
+  `authorization` header in its schema. It needs `FUSEGNET_AUTH_TOKEN` in `.env.local`.
+- `npm run smoke:live` — **15/15**, unchanged: the VLM, engine, report cage and Supabase
+  round-trip are unaffected by any of this.
 
 ### Known issues / carry-overs
-- ⚠️ **The Modal response contract is assumed, not verified.** `parseFusegnetResponse` tries
-  `mask`, `mask_png`, `mask_base64`, `mask_png_base64`, `mask_url`, `masks`, `wound_mask`,
-  `segmentation`, `output`, accepts an http url / data uri / bare base64, and reads a score
-  from `confidence`, `score`, `mean_probability`, `mean_prob`, `probability` or `dice`. If
-  the deployed handler uses something else, `FUSEGNET_MASK_FIELD` and
-  `FUSEGNET_IMAGE_FIELD` adapt it with no code change. **Run `npm run check:segmentation`
-  once against the real endpoint** — that is what closes this item.
-- ⚠️ **No live run yet.** `.env.local` has no `FUSEGNET_MODAL_URL`, `FAL_KEY` or
-  `REPLICATE_API_TOKEN`, so nothing here has been exercised against a GPU. The offline
-  suite proves the wire format; it cannot prove the endpoints agree with it.
-- **FUSegNet is a foot-ulcer model.** Its training distribution is DFUs. On a venous leg
-  ulcer or a pressure injury, SAM 3's concept prompt may well be the better boundary —
-  which is an argument for the chain order being an env var, and for the golden eval set
-  being the thing that settles it rather than this paragraph.
-- The two new providers' latency is unmeasured. A cold Modal container loading
-  EfficientNet weights is the slow case; `FUSEGNET_TIMEOUT_MS` defaults to 60 s.
+- ⚠️ **FUSegNet inference is unverified pending its auth token.** The route, the request
+  field and liveness are all confirmed; only the authenticated call is not. Set
+  `FUSEGNET_AUTH_TOKEN` (or `MODAL_KEY` + `MODAL_SECRET` if you switch the endpoint to Modal
+  proxy auth) and re-run `npm run check:segmentation`.
+- ⚠️ **The FUSegNet *response* shape is still assumed.** Its OpenAPI schema declares the
+  response as an empty object, so `parseFusegnetResponse` tries `mask`, `mask_png`,
+  `mask_base64`, `mask_png_base64`, `mask_url`, `masks`, `wound_mask`, `segmentation`,
+  `output`, accepts an http url / data uri / bare base64, and reads a score from
+  `confidence`, `score`, `mean_probability`, `mean_prob`, `probability` or `dice`.
+  `FUSEGNET_MASK_FIELD` adapts it with no code change, and the probe prints the real keys.
+- **FUSegNet is a foot-ulcer model**, which is why it sits second. The golden eval set is
+  what should settle the order, not the reasoning above.
+- Per-provider latency is only sampled, not measured: SAM 3 ~1.4–2.1 s on a 256 px probe;
+  FUSegNet's cold start was ~16 s to first byte on the first (404) call.
+- The probe's synthetic image is not a wound, so it cannot judge either model's quality —
+  only the wire format. `--image=` with a consented photo is the real check.
 
 ---
 
 ## NEXT — remaining Phase 3 + backlog
 
-1. **Run `npm run check:segmentation` against the live Modal + fal endpoints.** The FUSegNet
-   response contract is assumed, not verified, and nothing in the chain has touched a GPU yet.
-   This is the cheapest high-value item and it gates everything below that needs a real mask.
-   Then add `FUSEGNET_MODAL_URL` + `FAL_KEY` (and the Modal auth pair) to the Vercel project,
-   Production **and** Preview, and redeploy — Vercel binds env vars at deploy time.
+1. **Set `FUSEGNET_AUTH_TOKEN` and re-run `npm run check:segmentation`.** SAM 3 is verified
+   end to end; FUSegNet's `/segment` returns `401 {"detail":"unauthorised"}` from its own
+   handler, so its inference and response shape are still unproven. Then add `FAL_KEY` +
+   `FUSEGNET_MODAL_URL` + the token to the Vercel project, Production **and** Preview, and
+   redeploy — Vercel binds env vars at deploy time.
 2. **Golden eval set** (~20–50 clinician-labelled images, Fitzpatrick-balanced) + `scripts/eval.mts`
    reporting pathway accuracy, referral sensitivity and N/A rate. Highest-value remaining work —
    and now also the thing that settles whether FUSegNet or SAM 3 should lead the chain, which is
-   a one-line `SEGMENTATION_PROVIDERS` change rather than a code change.
+   a one-line `SEGMENTATION_PROVIDERS` change rather than a code change. FUSegNet is
+   currently second because it is a foot-ulcer model; the eval set is what should move it.
 3. Apply the Supabase migration and set the two server-side env vars.
-4. Measure per-provider boundary latency end to end; tune `SAM2_POINTS_PER_SIDE` /
-   `SAM2_MAX_MASKS` and the three `*_TIMEOUT_MS` ceilings against what the chain actually costs.
+4. Measure per-provider boundary latency end to end and tune the `*_TIMEOUT_MS` ceilings
+   against what the chain actually costs. Then consider the **SAM 3 box → FUSegNet mask**
+   refinement pass the Modal endpoint's `box` parameter was built for.
 5. `wound_timeline` UI + the "<40 % area reduction in 4 weeks" trigger from real history.
 6. ArUco detection (`pxPerCmFromMarkerSide` is ready). `_maskSelect.ts` is no longer
    load-bearing — FUSegNet returns one wound mask and SAM 3 usually returns one match — but
@@ -350,4 +400,4 @@ SAM 2 stays, unchanged and working, as the third fallback — additive, never de
 
 ## Paste-into-Cursor prompt (Composer / agent)
 
-> You are continuing the MendWise wound-assessment app. Read `docs/MendWise_Assessment_Build_Spec.md`, `docs/HANDOFF.md` and `docs/PHASE2_PLAN.md` first, and obey the cage invariants (determinism authoritative; AI caged; additive behind `assessmentV2`; no fine-tuning). Phases 0–2 and the FUSegNet/SAM 3 segmentation chain are DONE and green — do not regress them: `npm test` must stay at 97 + 15 + 4 + 2 + 96 passing, and `npm run typecheck` must not add errors beyond the pre-existing `app-tabs.web.tsx` one. Pick up from the "NEXT" section of `HANDOFF.md`. Before writing Expo code, check the versioned docs at https://docs.expo.dev/versions/v57.0.0/ (see `AGENTS.md`). Show me a short plan before large edits.
+> You are continuing the MendWise wound-assessment app. Read `docs/MendWise_Assessment_Build_Spec.md`, `docs/HANDOFF.md` and `docs/PHASE2_PLAN.md` first, and obey the cage invariants (determinism authoritative; AI caged; additive behind `assessmentV2`; no fine-tuning). Phases 0–2 and the FUSegNet/SAM 3 segmentation chain are DONE and green — do not regress them: `npm test` must stay at 97 + 15 + 4 + 2 + 115 passing, and `npm run typecheck` must not add errors beyond the pre-existing `app-tabs.web.tsx` one. Pick up from the "NEXT" section of `HANDOFF.md`. Before writing Expo code, check the versioned docs at https://docs.expo.dev/versions/v57.0.0/ (see `AGENTS.md`). Show me a short plan before large edits.

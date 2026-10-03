@@ -23,7 +23,7 @@ import { Cv, CvMat, loadCv } from '../../cv';
  * than silently assumed to be as good.
  *
  * This step is boundary-agnostic on purpose: it is handed a mask uri by
- * `_segmentation.ts` and does not care which of FUSegNet / SAM 3 / SAM 2 drew it.
+ * `_segmentation.ts` and does not care which of SAM 3 / FUSegNet drew it.
  * `maskProvider` is passed through for the record only — it is never inferred
  * here, because this module has no way to know.
  */
@@ -111,9 +111,7 @@ export async function analyzeTissue(body: TissueRequest): Promise<TissueResponse
   // caller-supplied string that ends up in the audit log as the record of which
   // model drew the boundary, and an unrecognised label there is worse than none.
   let maskProvider: TissueSummary['maskProvider'] =
-    body.maskProvider === 'fusegnet' || body.maskProvider === 'sam3' || body.maskProvider === 'sam2'
-      ? body.maskProvider
-      : null;
+    body.maskProvider === 'sam3' || body.maskProvider === 'fusegnet' ? body.maskProvider : null;
 
   if (!base64) {
     throw new Error('Missing base64 image.');

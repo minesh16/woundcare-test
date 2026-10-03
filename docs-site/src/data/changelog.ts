@@ -1,7 +1,13 @@
 /** Docs-site version log. App capability lives on /operations/status/, not here. */
-export const docsVersion = '0.3.0';
+export const docsVersion = '0.3.1';
 
 export const changelog: { date: string; version: string; change: string }[] = [
+	{
+		date: '2026-10-03',
+		version: '0.3.1',
+		change:
+			'Chain order is now SAM 3 → FUSegNet: FUSegNet is trained on foot ulcers specifically, so the generalist leads until the eval set settles it. SAM 2 on Replicate removed outright — it took no prompt and segmented everything in frame. SAM 3 verified live end to end (mask measured within 0.3% of known geometry); FUSegNet\'s route, request field and /health are confirmed, its authenticated inference is not.',
+	},
 	{
 		date: '2026-10-03',
 		version: '0.3.0',

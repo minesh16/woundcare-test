@@ -6,13 +6,12 @@ import type { ImagePoint } from '@/decision/types';
 /**
  * Client helper for the additive wound-boundary pass (assessmentV2).
  *
- * The server picks the backend — FUSegNet on Modal, then SAM 3 on fal.ai, then
- * SAM 2 on Replicate (`SEGMENTATION_PROVIDERS`). The client deliberately does
- * not choose and does not need rebuilding when the order changes: all it sends
- * is the image and the HSV centroid, and all it reads back is a mask plus which
- * provider produced it. That is the web/native parity rule from the build spec
- * (§2.4) — every heavy decision is server-side, so Expo-native and Expo-web
- * behave identically.
+ * The server picks the backend — SAM 3 on fal.ai, then FUSegNet on Modal
+ * (`SEGMENTATION_PROVIDERS`). The client deliberately does not choose and does
+ * not need rebuilding when the order changes: all it sends is the image and the
+ * HSV centroid, and all it reads back is a mask plus which provider produced it.
+ * That is the web/native parity rule from the build spec (§2.4) — every heavy
+ * decision is server-side, so Expo-native and Expo-web behave identically.
  *
  * Only runs when the `assessmentV2` flag is enabled; otherwise returns null so
  * the existing HSV analyze flow is the sole source of the wound mask. Any
@@ -38,12 +37,10 @@ export type SegmentResult = {
   /** The provider that produced `mask`, or 'unavailable' when none did. */
   source: SegmentationProviderName | 'unavailable';
   provider: SegmentationProviderName | null;
-  /** Whether the boundary came from a wound-only model, a concept prompt, or an automatic pass. */
+  /** Whether the boundary came from a concept prompt or a wound-only model. */
   promptMode: SegmentPromptMode | null;
   /** The wound mask uri. */
   mask: string | null;
-  /** SAM 2's union-of-everything mask; null for the other providers. */
-  combinedMask: string | null;
   /** Every mask the winning provider returned (one, for FUSegNet). */
   masks: string[];
   /** Which mask was chosen as the wound, when a choice was made. */

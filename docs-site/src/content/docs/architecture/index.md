@@ -14,8 +14,8 @@ Architecture diagrams are pan/zoomable. Use the toolbar, scroll to zoom, drag to
 Five non-negotiable invariants. They are also in [`.cursor/rules/mendwise.mdc`](https://github.com/minesh16/woundcare-test/blob/main/.cursor/rules/mendwise.mdc) and [`docs/HANDOFF.md`](https://github.com/minesh16/woundcare-test/blob/main/docs/HANDOFF.md).
 
 1. **Determinism is authoritative.** The CWCS 26-pathway table and Mölnlycke referral triggers in [`src/decision/engine.ts`](https://github.com/minesh16/woundcare-test/blob/main/src/decision/engine.ts) make the dressing / referral decision. AI only produces *inputs* and narrates *outputs* — it never emits a pathway.
-2. **AI is caged.** Segmentation (FUSegNet → SAM 3 → SAM 2) = boundary only. OpenCV HSI = tissue % only. Frontier VLM = strict-JSON enums only (`generateObject` + Zod, `temperature: 0`, no free-text field). Frontier LLM = report generation from already-decided facts only.
-3. **Additive, never destructive.** New work sits behind the `assessmentV2` flag ([`src/config/featureFlags.ts`](https://github.com/minesh16/woundcare-test/blob/main/src/config/featureFlags.ts), `EXPO_PUBLIC_ASSESSMENT_V2`) and `/api/v1/assessments/*`. The original HSV flow remains as capture quality-gate, offline fallback, and segmentation prompt-seed. What the centroid does depends on the backend: ignored by FUSegNet (wound-only), sent as a pixel point prompt to SAM 3, and used to *select* a mask for SAM 2, which has no prompt input at all.
+2. **AI is caged.** Segmentation (SAM 3 → FUSegNet) = boundary only. OpenCV HSI = tissue % only. Frontier VLM = strict-JSON enums only (`generateObject` + Zod, `temperature: 0`, no free-text field). Frontier LLM = report generation from already-decided facts only.
+3. **Additive, never destructive.** New work sits behind the `assessmentV2` flag ([`src/config/featureFlags.ts`](https://github.com/minesh16/woundcare-test/blob/main/src/config/featureFlags.ts), `EXPO_PUBLIC_ASSESSMENT_V2`) and `/api/v1/assessments/*`. The original HSV flow remains as capture quality-gate, offline fallback, and segmentation prompt-seed. What the centroid does depends on the backend: sent to SAM 3 as a pixel point prompt and used to select between its matches, and ignored by FUSegNet, which is wound-only.
 4. **Conservative by default.** No marker / low confidence / conflicting signals → "incomplete, retake or escalate". Never a confident dressing call at low confidence. The safety gate **withholds** the pathway (`pathwayWithheld`, `gateCodes`) rather than stating one weakly.
 5. **No model fine-tuning.** Pre-trained segmentation (zero-shot SAM, published FUSegNet weights) and frontier VLM / LLM. We train nothing.
 
@@ -42,7 +42,7 @@ flowchart TB
   end
 
   subgraph Inference["Caged inference"]
-    SAM["Boundary chain — boundary only\nFUSegNet on Modal → SAM 3 on fal.ai\n→ SAM 2 on Replicate"]
+    SAM["Boundary chain — boundary only\nSAM 3 on fal.ai → FUSegNet on Modal"]
     GW["Vercel AI Gateway\nVLM: generateObject + Zod\nLLM: report from decided facts"]
   end
 
@@ -115,7 +115,7 @@ The SSE orchestrator is **shipped**, not roadmap. [`api/v1/assessments/run.ts`](
 | Step | Who | What it is allowed to do |
 |---|---|---|
 | Capture quality + HSV centroid | OpenCV (native or `/api/analyze`) | Blur / exposure / coin; seed for mask selection |
-| Boundary | FUSegNet (Modal) → SAM 3 (fal.ai) → SAM 2 (Replicate) | A mask. Nothing clinical |
+| Boundary | SAM 3 (fal.ai) → FUSegNet (Modal) | A mask. Nothing clinical |
 | Tissue % + periwound | HSI inside the mask (`tissue.ts`, `_tissueOps.ts`) | Percentages and a 4 cm ring, or `periwound: null` if no scale |
 | Visual signs | Caged VLM (`vlm-features.ts`) | Enums in `vlm.schema.ts`. `uncertain` always legal |
 | Q&A | `questions.tsx` | Exudate, infection, perfusion, ABPI band, … |

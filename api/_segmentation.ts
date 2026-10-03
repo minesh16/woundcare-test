@@ -2,14 +2,18 @@
  * The segmentation facade: one call that produces a wound boundary, from
  * whichever backend is configured and working.
  *
- * Three backends, tried in order (`SEGMENTATION_PROVIDERS`, default
- * fusegnet → sam3 → sam2):
+ * Two backends, tried in order (`SEGMENTATION_PROVIDERS`, default sam3 → fusegnet):
  *
- *  | provider  | host      | prompt            | returns              |
- *  |-----------|-----------|-------------------|----------------------|
- *  | fusegnet  | Modal     | none (wound-only) | one binary mask      |
- *  | sam3      | fal.ai    | concept "wound"   | every match + scores |
- *  | sam2      | Replicate | none (automatic)  | everything in frame  |
+ *  | provider  | host   | prompt            | returns              |
+ *  |-----------|--------|-------------------|----------------------|
+ *  | sam3      | fal.ai | concept "wound"   | every match + scores |
+ *  | fusegnet  | Modal  | none (wound-only) | one binary mask      |
+ *
+ * SAM 2 on Replicate used to be a third provider. It has been removed: as the
+ * automatic mask generator it took no prompt, segmented everything in frame, and
+ * the wound had to be guessed back out of the result — it did not work well
+ * enough to be worth keeping even as a fallback. Below these two the fallback is
+ * the on-device HSV mask, as it always was.
  *
  * Why a chain rather than one provider: the build spec requires web/native
  * parity and conservative degradation (§2.4, §2.5). A GPU endpoint cold-starting,
@@ -18,14 +22,13 @@
  * Every attempt is recorded in `attempts` and lands in the audit log, so "which
  * model drew this boundary" is answerable after the fact rather than inferred.
  *
- * The cage is unchanged by any of this: all three produce a BOUNDARY only.
- * Tissue composition is measured by OpenCV HSI inside the mask; the dressing
- * pathway comes from the deterministic engine.
+ * The cage is unchanged by any of this: both produce a BOUNDARY only. Tissue
+ * composition is measured by OpenCV HSI inside the mask; the dressing pathway
+ * comes from the deterministic engine.
  */
 
 import { isFusegnetConfigured, runFusegnet } from './_fusegnet';
 import { maskStats, selectWoundMask, type MaskSelection } from './_maskSelect';
-import { isSam2Configured, runSam2Segmentation } from './_sam2';
 import { isSam3Configured, runSam3 } from './_sam3';
 import {
   confidenceFromScore,
@@ -44,11 +47,10 @@ export type { MaskSelection } from './_maskSelect';
 /**
  * How the boundary was obtained — recorded because it is the single most
  * informative thing about how much the mask can be trusted:
- *  - `wound-specific`: a wound-only model, nothing to disambiguate
  *  - `concept`: a generalist told to find "wound"
- *  - `automatic`: a generalist told nothing, with the wound picked out afterwards
+ *  - `wound-specific`: a wound-only model, nothing to disambiguate
  */
-export type PromptMode = 'wound-specific' | 'concept' | 'automatic';
+export type PromptMode = 'concept' | 'wound-specific';
 
 export type AttemptStatus = 'ok' | 'skipped' | 'failed' | 'implausible';
 
@@ -66,8 +68,6 @@ export type SegmentationOutcome = {
   mask: string | null;
   /** All masks the winning provider returned (one, for FUSegNet). */
   masks: string[];
-  /** SAM 2's union-of-everything mask. Null for the other providers — they do not produce one. */
-  combinedMask: string | null;
   /** Which of `masks` was chosen as the wound, when a choice was made. */
   selection: MaskSelection | null;
   /** Per-mask scores, when the provider reports them (SAM 3 does). */
@@ -84,7 +84,6 @@ export type SegmentationOutcome = {
 type Candidate = {
   mask: string;
   masks: string[];
-  combinedMask: string | null;
   selection: MaskSelection | null;
   scores: number[] | null;
   confidence: MaskConfidence;
@@ -102,12 +101,10 @@ export function providerStatus(): { provider: SegmentationProvider; configured: 
 
 export function isProviderConfigured(provider: SegmentationProvider): boolean {
   switch (provider) {
-    case 'fusegnet':
-      return isFusegnetConfigured();
     case 'sam3':
       return isSam3Configured();
-    case 'sam2':
-      return isSam2Configured();
+    case 'fusegnet':
+      return isFusegnetConfigured();
   }
 }
 
@@ -117,9 +114,8 @@ export function isSegmentationConfigured(): boolean {
 }
 
 const MISSING_ENV: Record<SegmentationProvider, string> = {
-  fusegnet: 'FUSEGNET_MODAL_URL',
   sam3: 'FAL_KEY',
-  sam2: 'REPLICATE_API_TOKEN',
+  fusegnet: 'FUSEGNET_MODAL_URL',
 };
 
 /**
@@ -155,7 +151,6 @@ async function tryFusegnet(imageDataUrl: string): Promise<Candidate> {
   return {
     mask,
     masks: [mask],
-    combinedMask: null,
     selection: { index: 0, maskUrl: mask, areaPx: stats.areaPx, totalPx: stats.totalPx },
     scores: typeof result.score === 'number' ? [result.score] : null,
     confidence: fusegnetConfidence(result.score),
@@ -179,7 +174,6 @@ async function trySam3(imageDataUrl: string, point: ImagePoint | null): Promise<
     return {
       mask,
       masks: result.masks,
-      combinedMask: null,
       selection: { index: 0, maskUrl: mask, areaPx: stats.areaPx, totalPx: stats.totalPx },
       scores: result.scores,
       confidence: confidenceFromScore(result.scores?.[0] ?? null),
@@ -209,43 +203,11 @@ async function trySam3(imageDataUrl: string, point: ImagePoint | null): Promise<
   return {
     mask,
     masks: result.masks,
-    combinedMask: null,
     selection: selection ?? null,
     scores: result.scores,
     confidence: selection ? 'high' : 'medium',
     model: result.model,
     promptMode: 'concept',
-  };
-}
-
-async function trySam2(imageDataUrl: string, point: ImagePoint | null): Promise<Candidate> {
-  const result = await runSam2Segmentation({ imageDataUrl });
-  const selection =
-    point && result.individualMasks.length > 0 ? await selectWoundMask(result.individualMasks, point) : null;
-
-  // The plausibility gate applies to a SELECTED mask only. SAM 2's combined mask
-  // is the union of every object in the frame, so it would always read as
-  // "too large" — rejecting it would remove the legacy fallback entirely rather
-  // than improve it. It is already reported at a lower confidence.
-  if (selection) {
-    const verdict = maskPlausibility(selection.areaPx, selection.totalPx);
-    if (verdict !== 'plausible') {
-      throw new ImplausibleMask(`SAM 2: ${describePlausibility(verdict)}.`);
-    }
-  }
-
-  const mask = selection?.maskUrl ?? result.combinedMask;
-  if (!mask) throw new Error('SAM 2 returned no masks.');
-
-  return {
-    mask,
-    masks: result.individualMasks,
-    combinedMask: result.combinedMask,
-    selection,
-    scores: null,
-    confidence: selection ? 'high' : result.confidence,
-    model: result.model,
-    promptMode: 'automatic',
   };
 }
 
@@ -276,11 +238,9 @@ export async function runSegmentation(args: {
     const started = Date.now();
     try {
       const candidate =
-        provider === 'fusegnet'
-          ? await tryFusegnet(args.imageDataUrl)
-          : provider === 'sam3'
-            ? await trySam3(args.imageDataUrl, point)
-            : await trySam2(args.imageDataUrl, point);
+        provider === 'sam3'
+          ? await trySam3(args.imageDataUrl, point)
+          : await tryFusegnet(args.imageDataUrl);
 
       attempts.push({ provider, status: 'ok', ms: Date.now() - started });
       return { provider, attempts, ...candidate };
@@ -302,7 +262,6 @@ export async function runSegmentation(args: {
     provider: null,
     mask: null,
     masks: [],
-    combinedMask: null,
     selection: null,
     scores: null,
     confidence: 'low',

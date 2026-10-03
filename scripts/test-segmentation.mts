@@ -26,7 +26,9 @@ import {
   dataUrlToBytes,
   DEFAULT_PROVIDER_ORDER,
   describePlausibility,
+  fusegnetHealthUrl,
   fusegnetRequest,
+  fusegnetUrl,
   highestScoreIndex,
   imageSize,
   MAX_MASK_AREA_FRACTION,
@@ -63,23 +65,30 @@ function eq(name: string, actual: unknown, expected: unknown) {
 // Provider order
 // ---------------------------------------------------------------------------
 
-eq('default order is wound-specific first, generalist last', [...DEFAULT_PROVIDER_ORDER], [
-  'fusegnet',
-  'sam3',
-  'sam2',
-]);
-eq('an unset env var gives the default order', parseProviderOrder(undefined), ['fusegnet', 'sam3', 'sam2']);
-eq('an explicit order is honoured', parseProviderOrder('sam3,fusegnet'), ['sam3', 'fusegnet']);
-eq('a single provider can be pinned', parseProviderOrder('sam3'), ['sam3']);
+// SAM 3 leads: FUSegNet is the more specific model but its training set is
+// chronic FOOT ulcers, so it is the preferred boundary for DFUs and an unknown
+// quantity elsewhere. The general model goes first until the eval set says
+// otherwise — and that decision is this env var, not a code change.
+eq('default order is SAM 3 then FUSegNet', [...DEFAULT_PROVIDER_ORDER], ['sam3', 'fusegnet']);
+eq('an unset env var gives the default order', parseProviderOrder(undefined), ['sam3', 'fusegnet']);
+eq('an explicit order is honoured', parseProviderOrder('fusegnet,sam3'), ['fusegnet', 'sam3']);
+eq('a single provider can be pinned', parseProviderOrder('fusegnet'), ['fusegnet']);
 eq('whitespace and case are tolerated', parseProviderOrder(' SAM3 , FuseGNet '), ['sam3', 'fusegnet']);
-eq('duplicates collapse', parseProviderOrder('sam2,sam2,sam3'), ['sam2', 'sam3']);
+eq('duplicates collapse', parseProviderOrder('fusegnet,fusegnet,sam3'), ['fusegnet', 'sam3']);
 eq('an unknown name is dropped, not fatal', parseProviderOrder('sam4,sam3'), ['sam3']);
+// SAM 2 was removed as a provider; naming it must not resurrect it, and must
+// not take segmentation down either.
+eq('the removed sam2 provider is not accepted', parseProviderOrder('sam2,sam3'), ['sam3']);
+eq('sam2 alone falls back to the default rather than disabling segmentation', parseProviderOrder('sam2'), [
+  'sam3',
+  'fusegnet',
+]);
 eq(
   'an all-unknown value falls back to the default rather than disabling segmentation',
   parseProviderOrder('nonsense,garbage'),
-  ['fusegnet', 'sam3', 'sam2'],
+  ['sam3', 'fusegnet'],
 );
-eq('an empty string falls back to the default', parseProviderOrder(''), ['fusegnet', 'sam3', 'sam2']);
+eq('an empty string falls back to the default', parseProviderOrder(''), ['sam3', 'fusegnet']);
 
 // ---------------------------------------------------------------------------
 // Image dimensions — needed to convert a fractional point to pixels
@@ -243,14 +252,41 @@ eq('a NaN score is medium, never high', confidenceFromScore(NaN), 'medium');
 // FUSegNet request + response
 // ---------------------------------------------------------------------------
 
-eq('the image field defaults to `image`', buildFusegnetBody({ imageDataUrl: 'data:image/png;base64,AA' }), {
-  image: 'data:image/png;base64,AA',
+// The deployed endpoint's own OpenAPI schema names this field `image_b64`.
+eq('the image field defaults to `image_b64`', buildFusegnetBody({ imageDataUrl: 'data:image/png;base64,AA' }), {
+  image_b64: 'data:image/png;base64,AA',
 });
 eq(
   'the image field can be renamed without a code change',
-  buildFusegnetBody({ imageDataUrl: 'X', imageField: 'image_b64' }),
-  { image_b64: 'X' },
+  buildFusegnetBody({ imageDataUrl: 'X', imageField: 'image' }),
+  { image: 'X' },
 );
+// `box` is [x0,y0,x1,y1] in pixels; the endpoint documents it as coming from SAM 3.
+eq('a box is rounded to integer pixels', buildFusegnetBody({ imageDataUrl: 'X', box: [1.4, 2.6, 30.2, 40.8] }).box, [
+  1, 3, 30, 41,
+]);
+check('a box of the wrong length is dropped', buildFusegnetBody({ imageDataUrl: 'X', box: [1, 2, 3] }).box === undefined);
+check(
+  'a box containing NaN is dropped rather than sent',
+  buildFusegnetBody({ imageDataUrl: 'X', box: [1, 2, NaN, 4] }).box === undefined,
+);
+check('no box key at all when none is given', buildFusegnetBody({ imageDataUrl: 'X' }).box === undefined);
+eq('size is passed through as an integer', buildFusegnetBody({ imageDataUrl: 'X', size: 512 }).size, 512);
+check('a zero size is dropped so the endpoint keeps its own default', buildFusegnetBody({ imageDataUrl: 'X', size: 0 }).size === undefined);
+check('debug is omitted unless asked for', buildFusegnetBody({ imageDataUrl: 'X' }).debug === undefined);
+
+// The bare *.modal.run origin 404s: the FastAPI app mounts /health and /segment
+// beneath it. This is what made the first live probe fail.
+eq('the segment route is appended to a bare origin', fusegnetUrl('https://x--app.modal.run', '/segment'), 'https://x--app.modal.run/segment');
+eq('a trailing slash does not double up', fusegnetUrl('https://x--app.modal.run/', '/segment'), 'https://x--app.modal.run/segment');
+eq(
+  'a URL that already has a path is left alone, so one var can pin the endpoint',
+  fusegnetUrl('https://x--app.modal.run/v2/infer', '/segment'),
+  'https://x--app.modal.run/v2/infer',
+);
+eq('surrounding whitespace is trimmed', fusegnetUrl('  https://x--app.modal.run  ', '/segment'), 'https://x--app.modal.run/segment');
+eq('the health url is derived from the same origin', fusegnetHealthUrl({ FUSEGNET_MODAL_URL: 'https://x--app.modal.run' }), 'https://x--app.modal.run/health');
+check('no health url without a configured origin', fusegnetHealthUrl({}) === null);
 
 const longBase64 = 'A'.repeat(120);
 eq(
@@ -343,10 +379,29 @@ const fusegReq = fusegnetRequest(
   { FUSEGNET_MODAL_URL: 'https://x--fusegnet.modal.run', MODAL_KEY: 'k', MODAL_SECRET: 's' },
   'data:image/jpeg;base64,AAAA',
 );
-eq('the FUSegNet request posts to the configured url', fusegReq?.url, 'https://x--fusegnet.modal.run');
+eq('the FUSegNet request posts to the segment route', fusegReq?.url, 'https://x--fusegnet.modal.run/segment');
 eq('with the Modal auth pair', fusegReq?.headers['Modal-Key'], 'k');
 eq('and json content-type', fusegReq?.headers['Content-Type'], 'application/json');
-eq('carrying the image in the default field', JSON.parse(fusegReq!.body), { image: 'data:image/jpeg;base64,AAAA' });
+eq('carrying the image in the default field', JSON.parse(fusegReq!.body), { image_b64: 'data:image/jpeg;base64,AAAA' });
+eq(
+  'the segment route can be overridden',
+  fusegnetRequest({ FUSEGNET_MODAL_URL: 'https://x--f.modal.run', FUSEGNET_SEGMENT_PATH: '/infer' }, 'd')?.url,
+  'https://x--f.modal.run/infer',
+);
+eq(
+  'FUSEGNET_SIZE reaches the body when set',
+  JSON.parse(fusegnetRequest({ FUSEGNET_MODAL_URL: 'https://x', FUSEGNET_SIZE: '384' }, 'd')!.body).size,
+  384,
+);
+check(
+  'and no size key when unset, so the endpoint keeps its own 512 default',
+  JSON.parse(fusegnetRequest({ FUSEGNET_MODAL_URL: 'https://x' }, 'd')!.body).size === undefined,
+);
+eq(
+  'a box passed by a caller reaches the body',
+  JSON.parse(fusegnetRequest({ FUSEGNET_MODAL_URL: 'https://x' }, 'd', [10, 20, 30, 40])!.body).box,
+  [10, 20, 30, 40],
+);
 eq('with the default timeout', fusegReq?.timeoutMs, 60_000);
 eq(
   'a configured timeout is honoured',

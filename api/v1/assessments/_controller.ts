@@ -58,7 +58,7 @@ export async function runAssessment(input: RunInput, emit: StepEmitter): Promise
   };
 
   // --- 1. Segment -----------------------------------------------------------
-  // The provider chain (FUSegNet → SAM 3 → SAM 2) lives in `_segmentation.ts`,
+  // The provider chain (SAM 3 → FUSegNet) lives in `_segmentation.ts`,
   // which never throws: a dead backend becomes a recorded attempt and the next
   // provider is tried. The orchestrator's job here is only to decide whether the
   // step counts as `ok` or `degraded`, and to carry the attempts into the record.

@@ -8,7 +8,7 @@
  * single CWCS tissue type using the guide's own precedence.
  *
  * Design rule (the cage): this module is pure, deterministic and unit-tested.
- * AI (SAM 2 / HSI / VLM / LLM) only produces the *inputs* to this engine and
+ * AI (segmentation / HSI / VLM / LLM) only produces the *inputs* to this engine and
  * narrates its *outputs* — it never makes the dressing decision here.
  *
  * Runtime-only imports are avoided so the file runs under `node

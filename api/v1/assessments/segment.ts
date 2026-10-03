@@ -76,8 +76,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       wound_area_cm2: null,
       calibration: null,
       assessment_id: assessmentId,
-      reason:
-        'No segmentation provider configured (FUSEGNET_MODAL_URL / FAL_KEY / REPLICATE_API_TOKEN all unset).',
+      reason: 'No segmentation provider configured (FAL_KEY and FUSEGNET_MODAL_URL both unset).',
     };
     res.status(200).json(payload);
     return;

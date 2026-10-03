@@ -16,19 +16,17 @@ import {
  * Body: { base64: string, point?: { xPct, yPct } }
  *  - `point` is the HSV wound centroid (or a user tap), in fractional
  *    coordinates. What happens to it depends on which backend answers:
- *      fusegnet — ignored; the model segments wounds and nothing else
  *      sam3     — sent as a pixel `point_prompt`, and used to pick the right
  *                 instance when the concept prompt "wound" matches more than one
- *      sam2     — not sendable (the automatic generator takes no prompt), so it
- *                 is used server-side to SELECT the wound from every mask found
+ *      fusegnet — ignored; the model segments wounds and nothing else
  *
- * Response: { source, provider, promptMode, mask, combinedMask, masks, selection,
+ * Response: { source, provider, promptMode, mask, masks, selection,
  *             scores, confidence, attempts, point?, model?, reason? }
  *  - `mask` is the wound mask to measure tissue inside.
  *  - `attempts` records every provider tried and why it was skipped or rejected.
  *    This is the thing worth having in production: "the boundary looks wrong"
- *    and "the boundary came from the third fallback" are the same bug report.
- *  - With no provider configured, or all of them failing, responds
+ *    and "the boundary came from the fallback provider" are the same bug report.
+ *  - With no provider configured, or both of them failing, responds
  *    { source: 'unavailable', mask: null } so the client keeps its HSV mask.
  *    Conservative by default — a segmentation outage degrades the boundary, it
  *    never blocks the assessment.
@@ -44,8 +42,6 @@ type SegmentResponse = {
   promptMode: PromptMode | null;
   /** The wound mask uri. */
   mask: string | null;
-  /** SAM 2's union-of-everything mask; null for the other providers. */
-  combinedMask: string | null;
   /** Every mask the winning provider returned. */
   masks: string[];
   /** Which mask was chosen as the wound, when a choice was made. */
@@ -93,15 +89,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       provider: null,
       promptMode: null,
       mask: null,
-      combinedMask: null,
       masks: [],
       selection: null,
       scores: null,
       confidence: 'low',
       attempts: [],
       point,
-      reason:
-        'No segmentation provider configured (FUSEGNET_MODAL_URL / FAL_KEY / REPLICATE_API_TOKEN all unset).',
+      reason: 'No segmentation provider configured (FAL_KEY and FUSEGNET_MODAL_URL both unset).',
     };
     res.status(200).json(payload);
     return;
@@ -115,7 +109,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     provider: outcome.provider,
     promptMode: outcome.promptMode,
     mask: outcome.mask,
-    combinedMask: outcome.combinedMask,
     masks: outcome.masks,
     selection: outcome.selection,
     scores: outcome.scores,

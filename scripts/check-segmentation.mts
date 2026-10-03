@@ -3,8 +3,10 @@
  *
  * Answers one question per backend: *does the real endpoint speak the contract
  * this app assumes?* The offline suite (`npm run test:segmentation`) proves the
- * request we build and the responses we can parse; only a real call proves the
- * deployed FUSegNet handler and fal's SAM 3 agree with it.
+ * request we build and the responses we can parse; only a real call proves that
+ * fal's SAM 3 and the deployed FUSegNet handler agree with it.
+ *
+ * Probed in chain order: SAM 3 first, then FUSegNet.
  *
  * It sends the request assembled by the shared builders in
  * `api/_segmentationParse.ts` — the same ones the adapters use — so a pass here
@@ -34,6 +36,7 @@ if (existsSync('.env.local')) {
 
 const {
   dataUrlToBytes,
+  fusegnetHealthUrl,
   fusegnetRequest,
   imageSize,
   maskPlausibility,
@@ -130,56 +133,6 @@ async function send(request: { url: string; method: 'POST'; headers: Record<stri
   }
 }
 
-// --- FUSegNet (Modal) ------------------------------------------------------
-
-const fusegReq = fusegnetRequest(process.env, imageDataUrl);
-if (!fusegReq) {
-  console.log('fusegnet — SKIPPED: FUSEGNET_MODAL_URL is unset.\n');
-} else {
-  const authUsed = fusegReq.headers['Modal-Key']
-    ? 'Modal-Key/Modal-Secret'
-    : fusegReq.headers.Authorization
-      ? 'Authorization: Bearer'
-      : 'none (public endpoint)';
-  console.log(`fusegnet → ${fusegReq.url}\n  auth: ${authUsed}, request field: ${Object.keys(JSON.parse(fusegReq.body))[0]}`);
-  try {
-    const { ok, status, text, ms } = await send(fusegReq);
-    if (!ok) {
-      failures += 1;
-      console.error(`  FAIL ${status} after ${ms}ms: ${text.slice(0, 300)}`);
-      if (status === 401 || status === 403) {
-        console.error('  → proxy auth: set MODAL_KEY + MODAL_SECRET, or FUSEGNET_AUTH_TOKEN.');
-      }
-    } else {
-      let json: unknown;
-      try {
-        json = JSON.parse(text);
-      } catch {
-        failures += 1;
-        console.error(`  FAIL response is not JSON: ${text.slice(0, 200)}`);
-        json = null;
-      }
-      if (json) {
-        const parsed = parseFusegnetResponse(json, process.env.FUSEGNET_MASK_FIELD);
-        console.log(`  ${ms}ms, keys: [${parsed.keys.join(', ')}]`);
-        if (!parsed.mask) {
-          failures += 1;
-          console.error('  FAIL no recognisable mask in the response.');
-          console.error(`  → set FUSEGNET_MASK_FIELD to whichever of [${parsed.keys.join(', ')}] holds the mask`);
-          console.error(`  → body starts: ${text.slice(0, 300)}`);
-        } else {
-          console.log(`  OK mask: ${await measureMask(parsed.mask)}`);
-          console.log(`  score: ${parsed.score ?? 'not reported'}, area_px: ${parsed.areaPx ?? 'not reported'}`);
-        }
-      }
-    }
-  } catch (error) {
-    failures += 1;
-    console.error(`  FAIL ${error instanceof Error ? error.message : String(error)}`);
-  }
-  console.log('');
-}
-
 // --- SAM 3 (fal.ai) --------------------------------------------------------
 
 const sam3Req = sam3Request(process.env, { imageDataUrl, point, imageBytes: bytes });
@@ -219,14 +172,73 @@ if (!sam3Req) {
   console.log('');
 }
 
-// --- SAM 2 (Replicate, last fallback) --------------------------------------
+// --- FUSegNet (Modal) ------------------------------------------------------
 
-if (!process.env.REPLICATE_API_TOKEN) {
-  console.log('sam2 — SKIPPED: REPLICATE_API_TOKEN is unset.\n');
+const fusegReq = fusegnetRequest(process.env, imageDataUrl);
+if (!fusegReq) {
+  console.log('fusegnet — SKIPPED: FUSEGNET_MODAL_URL is unset.\n');
 } else {
-  console.log('sam2 — configured (Replicate). Not probed here: it is the last fallback, it is');
-  console.log('  already covered by the existing flow, and a probe costs a slow automatic');
-  console.log('  mask-generation run. Set SEGMENTATION_PROVIDERS=sam2 and use /api/segment to exercise it.\n');
+  // Hit /health first. It is free, it says which weights are loaded and at what
+  // input size, and it warms a cold container — otherwise the first real call
+  // absorbs a ~15 s model load and a timeout reads as a broken endpoint.
+  const healthUrl = fusegnetHealthUrl(process.env);
+  if (healthUrl) {
+    try {
+      const started = Date.now();
+      const response = await fetch(healthUrl, { signal: AbortSignal.timeout(fusegReq.timeoutMs) });
+      const text = await response.text();
+      console.log(`fusegnet /health → ${response.status} in ${Date.now() - started}ms: ${text.slice(0, 200)}`);
+    } catch (error) {
+      console.error(`fusegnet /health → unreachable (${error instanceof Error ? error.message : 'failed'})`);
+    }
+  }
+  const authUsed = fusegReq.headers['Modal-Key']
+    ? 'Modal-Key/Modal-Secret'
+    : fusegReq.headers.Authorization
+      ? 'Authorization: Bearer'
+      : 'none (public endpoint)';
+  console.log(`fusegnet → ${fusegReq.url}\n  auth: ${authUsed}, request field: ${Object.keys(JSON.parse(fusegReq.body))[0]}`);
+  try {
+    const { ok, status, text, ms } = await send(fusegReq);
+    if (!ok) {
+      failures += 1;
+      console.error(`  FAIL ${status} after ${ms}ms: ${text.slice(0, 300)}`);
+      if (status === 401 || status === 403) {
+        // The deployed handler declares its own optional `authorization` header
+        // (see its openapi.json), and answers `{"detail":"unauthorised"}` — which
+        // is its own check, not Modal's proxy. So the bearer token is the likely
+        // fix; the Modal pair only applies if the endpoint uses proxy auth.
+        console.error('  → set FUSEGNET_AUTH_TOKEN to the token the handler expects');
+        console.error('    (or MODAL_KEY + MODAL_SECRET if the endpoint uses Modal proxy auth).');
+      }
+    } else {
+      let json: unknown;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        failures += 1;
+        console.error(`  FAIL response is not JSON: ${text.slice(0, 200)}`);
+        json = null;
+      }
+      if (json) {
+        const parsed = parseFusegnetResponse(json, process.env.FUSEGNET_MASK_FIELD);
+        console.log(`  ${ms}ms, keys: [${parsed.keys.join(', ')}]`);
+        if (!parsed.mask) {
+          failures += 1;
+          console.error('  FAIL no recognisable mask in the response.');
+          console.error(`  → set FUSEGNET_MASK_FIELD to whichever of [${parsed.keys.join(', ')}] holds the mask`);
+          console.error(`  → body starts: ${text.slice(0, 300)}`);
+        } else {
+          console.log(`  OK mask: ${await measureMask(parsed.mask)}`);
+          console.log(`  score: ${parsed.score ?? 'not reported'}, area_px: ${parsed.areaPx ?? 'not reported'}`);
+        }
+      }
+    }
+  } catch (error) {
+    failures += 1;
+    console.error(`  FAIL ${error instanceof Error ? error.message : String(error)}`);
+  }
+  console.log('');
 }
 
 if (failures > 0) {

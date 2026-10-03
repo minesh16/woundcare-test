@@ -33,10 +33,10 @@ export type StepOutcome = {
  * stripping. They are types only, so there is no runtime coupling to break —
  * but they must be changed together.
  */
-export type SegmentationProviderName = 'fusegnet' | 'sam3' | 'sam2';
+export type SegmentationProviderName = 'sam3' | 'fusegnet';
 
 /** How the boundary was obtained — see `PromptMode` in `api/_segmentation.ts`. */
-export type SegmentPromptMode = 'wound-specific' | 'concept' | 'automatic';
+export type SegmentPromptMode = 'concept' | 'wound-specific';
 
 export type SegmentSummary = {
   source: SegmentationProviderName | 'unavailable';

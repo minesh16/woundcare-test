@@ -1,6 +1,6 @@
 ---
 title: Assessment pipeline
-description: Capture → boundary chain (FUSegNet / SAM 3 / SAM 2) → mask-restricted HSI → caged VLM → reconcile + safety gate → evaluate → report → optional persist, as the code actually runs.
+description: Capture → boundary chain (SAM 3 / FUSegNet) → mask-restricted HSI → caged VLM → reconcile + safety gate → evaluate → report → optional persist, as the code actually runs.
 ---
 
 <!-- docs-hook:auto:start:status -->
@@ -22,7 +22,7 @@ flowchart TD
   C -->|coin Hough / area| D[pxPerCm calibration]
   C -->|none| E[Relative px² only]
   B --> F[HSV centroid]
-  F --> G[Boundary chain: FUSegNet on Modal →\nSAM 3 on fal.ai → SAM 2 on Replicate]
+  F --> G[Boundary chain: SAM 3 on fal.ai →\nFUSegNet on Modal]
   G --> G2{Mask plausible?\n0.05%–60% of frame}
   G2 -->|no| G3[Reject, try the next provider\nattempt recorded]
   G3 --> G
@@ -74,13 +74,14 @@ Coin scale is Hough-circle based ([`measureArea.ts`](https://github.com/minesh16
 
 Behind `assessmentV2`. Client: [`src/cv/segment.ts`](https://github.com/minesh16/woundcare-test/blob/main/src/cv/segment.ts) → [`api/segment.ts`](https://github.com/minesh16/woundcare-test/blob/main/api/segment.ts) (or [`api/v1/assessments/segment.ts`](https://github.com/minesh16/woundcare-test/blob/main/api/v1/assessments/segment.ts)) → [`api/_segmentation.ts`](https://github.com/minesh16/woundcare-test/blob/main/api/_segmentation.ts).
 
-Three backends, tried in order — full detail in [Legacy API → the provider chain](/docs/modules/api/#the-provider-chain):
+Two backends, tried in order — full detail in [Legacy API → the provider chain](/docs/modules/api/#the-provider-chain):
 
-1. **FUSegNet** on Modal — a wound-specific CNN. One binary mask, no prompt, nothing to disambiguate. First because it is the only one of the three trained on wounds.
-2. **SAM 3** on fal.ai — the text concept prompt `"wound"` plus the HSV centroid as a pixel point. Returns every match with scores; the centroid picks between them.
-3. **SAM 2** on Replicate — the **automatic** mask generator, no prompt input at all, so the centroid is applied afterwards in [`api/_maskSelect.ts`](https://github.com/minesh16/woundcare-test/blob/main/api/_maskSelect.ts): among masks containing it, pick the smallest.
+1. **SAM 3** on fal.ai — the text concept prompt `"wound"` plus the HSV centroid as a pixel point. Returns every match with scores; when there is more than one, the centroid picks between them in [`api/_maskSelect.ts`](https://github.com/minesh16/woundcare-test/blob/main/api/_maskSelect.ts). First because it is the generalist: FUSegNet is trained on **foot** ulcers specifically.
+2. **FUSegNet** on Modal — a wound-specific CNN. One binary mask, no prompt, nothing to disambiguate.
 
-A returned mask is measured before it is used: under 0.05% or over 60% of the frame and it is rejected and the next provider tried. Every attempt is recorded. All providers unconfigured or failing → HSV mask, confidence downgraded, step `degraded`.
+SAM 2 on Replicate was a third provider and has been removed — it took no prompt and segmented everything in frame.
+
+A returned mask is measured before it is used: under 0.05% or over 60% of the frame and it is rejected and the next provider tried. Every attempt is recorded. Both providers unconfigured or failing → HSV mask, confidence downgraded, step `degraded`.
 
 The client picks nothing — the chain is server-side, so native and web behave identically. The orchestrator calls the same facade inside `_controller.ts` rather than HTTP-self-fetching.
 
@@ -127,12 +128,12 @@ From `_controller.ts` — a state machine, not an agent:
 
 | Step | If it fails |
 |---|---|
-| Boundary | Next provider in the chain; all three down → HSV mask, step `degraded` |
+| Boundary | Next provider in the chain; both down → HSV mask, step `degraded` |
 | VLM | Engine runs without `vlm`, step `degraded` |
 | Report LLM | Template, step `degraded` |
 | Supabase | Result still returned, audit to stdout |
 | **Evaluate** | The only non-optional step — the stream emits `event: error` |
 
-`maxDuration` for `run.ts` is **300 s in `vercel.json`**, not an `export const config` in the handler. Both segment routes are **180 s** there: three GPU backends at a 60 s timeout each do not fit in 60.
+`maxDuration` for `run.ts` is **300 s in `vercel.json`**, not an `export const config` in the handler. Both segment routes are **180 s** there: two GPU backends at a 60 s timeout each, plus mask fetch and decode, do not fit in 60.
 
 <!-- docs-hook: last auto-checked against commit e8cef6a on 2026-10-03 -->

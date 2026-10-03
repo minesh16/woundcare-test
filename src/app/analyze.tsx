@@ -19,9 +19,8 @@ import { useSessionStore } from '@/store/sessionStore';
  * network drew it is a debugging fact, not a clinical one.
  */
 const BOUNDARY_SOURCE: Record<NonNullable<SegmentResult['provider']>, string> = {
-  fusegnet: 'wound-specific model',
   sam3: 'general model, prompted for a wound',
-  sam2: 'general model, automatic',
+  fusegnet: 'wound-specific model',
 };
 
 export default function AnalyzeScreen() {
@@ -47,7 +46,7 @@ export default function AnalyzeScreen() {
         if (!cancelled) {
           setCvResult(result);
         }
-        // Additive assessmentV2 pass: SAM 2 boundary seeded by the HSV centroid.
+        // Additive assessmentV2 pass: model boundary seeded by the HSV centroid.
         // No-op unless the flag is on and the endpoint is configured.
         const seg = await segmentWoundUri(session.imageUri!, result.hsvCentroid);
         if (!cancelled && seg) {

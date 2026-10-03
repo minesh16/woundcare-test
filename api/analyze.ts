@@ -134,7 +134,7 @@ function runPipeline(cv: Cv, image: ImageDataLike, includeCoinReference: boolean
     // marker we report null rather than guessing a pixel radius.
     const periwound = measurePeriwound(cv, blurred, combined, pxPerCm);
 
-    // HSV wound centroid (fractional coords) — SAM 2 point-prompt seed.
+    // HSV wound centroid (fractional coords) — segmentation prompt/selection seed.
     let hsvCentroid: ImagePoint | null = null;
     if (largestIdx >= 0) {
       const moments = cv.moments(contours.get(largestIdx));

@@ -8,7 +8,7 @@ Status here follows [`docs/HANDOFF.md`](https://github.com/minesh16/woundcare-te
 Deadlines in that handoff: Assessment 3 due **25 Sep 2026**; pitch **13 Oct 2026**.
 
 :::note
-Items under **Next** are not shipped. Do not document them as live capability. Golden eval (`scripts/eval.mts`), a live run of the FUSegNet / SAM 3 endpoints, segmentation latency tuning, `wound_timeline` UI, ArUco, and ethics clearance are backlog.
+Items under **Next** are not shipped. Do not document them as live capability. Golden eval (`scripts/eval.mts`), FUSegNet's auth token and a verified response shape, segmentation latency tuning, `wound_timeline` UI, ArUco, and ethics clearance are backlog.
 :::
 
 ## Done
@@ -21,7 +21,7 @@ Items under **Next** are not shipped. Do not document them as live capability. G
 
 ### Phase 1 — segmentation + measurement
 
-- SAM 2 via Replicate (`api/segment.ts`, `_sam2.ts`, `_maskSelect.ts`) — since superseded as the *first* provider by FUSegNet + SAM 3
+- SAM 2 via Replicate (`api/segment.ts`, `_sam2.ts`, `_maskSelect.ts`) — **since removed**, replaced by SAM 3 on fal.ai and FUSegNet on Modal
 - Marker / `pxPerCm` through both pipelines
 - HSI tissue % with an `epithelial` class
 - Real perfusion / ABPI / infection questionnaire inputs

@@ -32,9 +32,8 @@ This is a research prototype. Do not use it for clinical decisions.
 3. Typical `.env.local` names (values omitted on purpose):
 
    - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
-   - `FUSEGNET_MODAL_URL` (+ `MODAL_KEY` / `MODAL_SECRET`, or `FUSEGNET_AUTH_TOKEN`) — FUSegNet on Modal
-   - `FAL_KEY` — SAM 3 on fal.ai
-   - `REPLICATE_API_TOKEN` — SAM 2, the last-resort boundary provider
+   - `FAL_KEY` — SAM 3 on fal.ai, the first boundary provider
+   - `FUSEGNET_MODAL_URL` (the bare `*.modal.run` origin) + `FUSEGNET_AUTH_TOKEN`, or `MODAL_KEY` / `MODAL_SECRET` for Modal proxy auth — FUSegNet
    - `AI_GATEWAY_API_KEY` (or `vercel env pull` for OIDC)
    - `EXPO_PUBLIC_ASSESSMENT_V2=true` to exercise V2
    - `EXPO_PUBLIC_API_BASE` on native (the Vercel origin); web can use same-origin
@@ -97,7 +96,7 @@ That is five suites, no network:
 | `npm run test:cage` | **15/15** VLM schema + report-cage assertions |
 | `npm run test:copy` | **4/4** banned-terminology checks in `src/app`, `src/components`, `src/copy` |
 | `npm run test:imports` | **2/2** — no `@/` value imports in `src/` files reachable from `api/` |
-| `npm run test:segmentation` | **96/96** segmentation wire formats: provider order, image-header reading, pixel conversion, both request shapes, both response shapes, mask plausibility |
+| `npm run test:segmentation` | **115/115** segmentation wire formats: provider order, image-header reading, pixel conversion, URL joining, both request shapes, both response shapes, mask plausibility |
 
 ```bash
 npm run typecheck
@@ -111,7 +110,7 @@ These are **not** part of `npm test`:
 
 ```bash
 npm run check:gateway        # real model access per role — listing ≠ entitlement
-npm run check:segmentation   # real call to FUSegNet (Modal) and SAM 3 (fal.ai)
+npm run check:segmentation   # real call to SAM 3 (fal.ai) and FUSegNet (Modal)
 npm run smoke:live           # caged VLM, engine, report cage, Supabase round-trip
 npm run db:migrate           # idempotent apply of 0001_assessments.sql
 ```

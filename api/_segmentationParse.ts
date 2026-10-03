@@ -6,9 +6,9 @@
  * self-contained runtime module with zero relative imports, for the same reason
  * `src/decision/engine.ts` is: `node --experimental-strip-types` resolves ESM
  * specifiers literally, so a cross-file `import './_x'` (no extension) would
- * make this untestable offline. The HTTP adapters (`_fusegnet.ts`, `_sam3.ts`,
- * `_sam2.ts`) and the facade (`_segmentation.ts`) import FROM here; nothing is
- * imported INTO here.
+ * make this untestable offline. The HTTP adapters (`_sam3.ts`, `_fusegnet.ts`)
+ * and the facade (`_segmentation.ts`) import FROM here; nothing is imported
+ * INTO here.
  *
  * The cage (docs/MendWise_Assessment_Build_Spec.md §2): a segmentation model
  * produces a boundary and nothing else. No provider here emits a tissue class,
@@ -23,15 +23,19 @@
 /**
  * The wound-boundary backends, in the order of preference below.
  *
+ *  - `sam3`     — SAM 3 on fal.ai, driven by the text concept prompt "wound".
+ *    Returns every instance of the concept, so selection may still apply.
  *  - `fusegnet` — wound-specific CNN (FUSeg-trained) on a Modal GPU endpoint.
  *    Returns ONE binary wound mask. No prompt, and no mask-selection step,
  *    because the model only knows how to segment wounds.
- *  - `sam3`     — SAM 3 on fal.ai, driven by the text concept prompt "wound".
- *    Returns every instance of the concept, so selection may still apply.
- *  - `sam2`     — SAM 2 on Replicate: the AUTOMATIC mask generator, which has
- *    no prompt input at all and segments everything. Kept as the last resort.
+ *
+ * SAM 2 on Replicate was a third provider and has been **removed**: it was the
+ * automatic mask generator, with no prompt input at all, so it segmented
+ * everything in the frame and the wound had to be guessed out of the result
+ * afterwards. It did not work well enough to be worth keeping as a fallback. The
+ * fallback below these two is the on-device HSV mask, as it always was.
  */
-export type SegmentationProvider = 'fusegnet' | 'sam3' | 'sam2';
+export type SegmentationProvider = 'sam3' | 'fusegnet';
 
 /** Wound-bed centroid in fractional image coordinates (0–1). */
 export type ImagePoint = { xPct: number; yPct: number };
@@ -41,19 +45,22 @@ export type MaskConfidence = 'high' | 'medium' | 'low';
 export type ImageSize = { width: number; height: number };
 
 /**
- * Preference order. FUSegNet leads because it is the only one of the three
- * trained on wounds: a wound-specific mask needs no disambiguation, which
- * removes the whole class of "the model segmented the foot, not the ulcer"
- * failures that `_maskSelect.ts` exists to paper over. SAM 3's concept prompt
- * is the generalist second choice; SAM 2's automatic generator is the fallback.
+ * Preference order: **SAM 3 first**.
  *
- * Override with `SEGMENTATION_PROVIDERS` (comma-separated) to change the order
- * or to pin a single provider — e.g. `SEGMENTATION_PROVIDERS=sam3` to A/B one
- * backend without touching code.
+ * FUSegNet is the more specific model but not the more general one — its training
+ * set is chronic *foot* ulcers, so it is the preferred boundary for DFUs and an
+ * unknown quantity on a venous leg ulcer or a pressure injury. SAM 3's concept
+ * prompt has no such restriction. Leading with the general model and keeping the
+ * specialist behind it is the conservative order until the golden eval set says
+ * otherwise; that decision is then a one-line env change, not a code change.
+ *
+ * Override with `SEGMENTATION_PROVIDERS` (comma-separated) to change the order or
+ * to pin a single provider — e.g. `SEGMENTATION_PROVIDERS=fusegnet` to evaluate
+ * the foot-ulcer model on its own.
  */
-export const DEFAULT_PROVIDER_ORDER: readonly SegmentationProvider[] = ['fusegnet', 'sam3', 'sam2'];
+export const DEFAULT_PROVIDER_ORDER: readonly SegmentationProvider[] = ['sam3', 'fusegnet'];
 
-const ALL_PROVIDERS: readonly string[] = ['fusegnet', 'sam3', 'sam2'];
+const ALL_PROVIDERS: readonly string[] = ['sam3', 'fusegnet'];
 
 /**
  * Parse `SEGMENTATION_PROVIDERS`. Unknown names are dropped rather than
@@ -258,16 +265,33 @@ export function describePlausibility(verdict: MaskPlausibility): string {
 // ---------------------------------------------------------------------------
 
 /**
- * The request/response contract this adapter speaks to the Modal endpoint.
+ * The request contract, verified against the deployed endpoint's own OpenAPI
+ * schema (`GET {base}/openapi.json`, title "MendWise FUSegNet"):
  *
- * FUSegNet is deployed by us, so this is OUR contract, not a vendor's — but the
- * handler was written separately from this client, so the adapter is tolerant
- * about naming rather than brittle: it sends the field named by
- * `FUSEGNET_IMAGE_FIELD` (default `image`) and reads the first response key it
- * recognises. `npm run check:segmentation` prints the endpoint's actual keys
- * when none match, so a mismatch is a one-line env fix, not a debugging session.
+ *   POST {base}/segment
+ *   { image_b64: string,          // JPEG/PNG base64; a data-uri prefix is allowed
+ *     box?: [x0, y0, x1, y1],     // image pixels — see FUSEGNET_BOX note below
+ *     size?: number,              // model input side, multiple of 32, default 512
+ *     debug?: boolean }           // also returns an overlay PNG for eyeballing
+ *   plus an optional `authorization` header the handler checks itself.
+ *
+ * `GET {base}/health` returns `{ ok, model, size }` and is the cheap liveness
+ * check (it also warms a cold container).
+ *
+ * The response shape is *not* in the schema, so `parseFusegnetResponse` stays
+ * tolerant about naming and `npm run check:segmentation` prints the endpoint's
+ * actual keys — a mismatch is then a one-line `FUSEGNET_MASK_FIELD` fix.
  */
-export const FUSEGNET_IMAGE_FIELD_DEFAULT = 'image';
+export const FUSEGNET_IMAGE_FIELD_DEFAULT = 'image_b64';
+
+/**
+ * The route the model is served at. `FUSEGNET_MODAL_URL` is normally the bare
+ * `*.modal.run` origin, which 404s on its own — the FastAPI app mounts `/health`
+ * and `/segment` beneath it. So the path is appended unless the configured URL
+ * already has one, which also lets the whole endpoint be pinned in a single var.
+ */
+export const FUSEGNET_SEGMENT_PATH_DEFAULT = '/segment';
+export const FUSEGNET_HEALTH_PATH = '/health';
 
 /** Response keys searched, in order, for the binary wound mask. */
 export const FUSEGNET_MASK_KEYS: readonly string[] = [
@@ -336,13 +360,23 @@ function positiveNumber(raw: string | undefined, fallback: number): number {
 export function fusegnetRequest(
   env: Record<string, string | undefined>,
   imageDataUrl: string,
+  /** `[x0, y0, x1, y1]` in pixels, when a caller has one. See `buildFusegnetBody`. */
+  box?: readonly number[] | null,
 ): BackendRequest | null {
   if (!env.FUSEGNET_MODAL_URL) return null;
+  const size = Number(env.FUSEGNET_SIZE);
   return {
-    url: env.FUSEGNET_MODAL_URL,
+    url: fusegnetUrl(env.FUSEGNET_MODAL_URL, env.FUSEGNET_SEGMENT_PATH ?? FUSEGNET_SEGMENT_PATH_DEFAULT),
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...modalAuthHeaders(env) },
-    body: JSON.stringify(buildFusegnetBody({ imageDataUrl, imageField: env.FUSEGNET_IMAGE_FIELD })),
+    body: JSON.stringify(
+      buildFusegnetBody({
+        imageDataUrl,
+        imageField: env.FUSEGNET_IMAGE_FIELD,
+        box: box ?? null,
+        size: Number.isFinite(size) ? size : null,
+      }),
+    ),
     timeoutMs: positiveNumber(env.FUSEGNET_TIMEOUT_MS, FUSEGNET_DEFAULT_TIMEOUT_MS),
   };
 }
@@ -350,11 +384,55 @@ export function fusegnetRequest(
 export function buildFusegnetBody(args: {
   imageDataUrl: string;
   imageField?: string;
-  /** Sent only when the endpoint wants it; harmless extra keys are ignored by FastAPI-style handlers. */
+  /**
+   * `[x0, y0, x1, y1]` in image pixels. The endpoint's own schema describes this
+   * as coming "e.g. from SAM 3" — the deployment was built to be *refined after*
+   * a box, not only run standalone.
+   *
+   * Nothing passes it yet: the chain is a fallback chain, so FUSegNet only runs
+   * when SAM 3 did NOT produce anything to take a box from. Plumbed here because
+   * it is part of the real contract, and because a SAM-3-box → FUSegNet-mask
+   * refinement pass is the obvious next step once the eval set exists.
+   */
+  box?: readonly number[] | null;
+  /** Model input side; must be a multiple of 32. The endpoint defaults to 512. */
+  size?: number | null;
+  /** Ask for an overlay PNG as well. Diagnostics only — never the measured mask. */
+  debug?: boolean;
+  /** Harmless extra keys are ignored by FastAPI-style handlers. */
   extra?: Record<string, unknown>;
 }): Record<string, unknown> {
   const field = args.imageField?.trim() || FUSEGNET_IMAGE_FIELD_DEFAULT;
-  return { [field]: args.imageDataUrl, ...(args.extra ?? {}) };
+  const body: Record<string, unknown> = { [field]: args.imageDataUrl };
+  if (args.box && args.box.length === 4 && args.box.every((n) => Number.isFinite(n))) {
+    body.box = args.box.map((n) => Math.round(n));
+  }
+  if (typeof args.size === 'number' && Number.isFinite(args.size) && args.size > 0) {
+    body.size = Math.round(args.size);
+  }
+  if (args.debug) body.debug = true;
+  return { ...body, ...(args.extra ?? {}) };
+}
+
+/**
+ * Join the configured origin with a route. A URL that already carries a path is
+ * left alone, so one var can pin the whole endpoint.
+ */
+export function fusegnetUrl(rawUrl: string, path: string): string {
+  const trimmed = rawUrl.trim().replace(/\/+$/, '');
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.pathname && parsed.pathname !== '/') return trimmed;
+  } catch {
+    return trimmed;
+  }
+  return `${trimmed}${path}`;
+}
+
+/** `GET {base}/health` — liveness, the loaded model's name, and its input size. */
+export function fusegnetHealthUrl(env: Record<string, string | undefined>): string | null {
+  const base = env.FUSEGNET_MODAL_URL;
+  return base ? fusegnetUrl(base, FUSEGNET_HEALTH_PATH) : null;
 }
 
 export type FusegnetParsed = {
@@ -403,11 +481,10 @@ export function parseFusegnetResponse(json: unknown, maskField?: string | null):
 export const SAM3_FAL_MODEL_DEFAULT = 'fal-ai/sam-3/image';
 
 /**
- * The concept prompt. SAM 3's headline capability over SAM 2 is that it takes a
- * noun phrase and returns every instance of it, which is exactly the
- * "text-prompt 'wound' → box → mask" step the build spec lists as the optional
- * V2 of segmentation (§3). SAM 3 does it in one call, so there is no Grounding
- * DINO stage to add.
+ * The concept prompt. SAM 3's headline capability is that it takes a noun phrase
+ * and returns every instance of it, which is exactly the "text-prompt 'wound' →
+ * box → mask" step the build spec lists as the optional V2 of segmentation (§3).
+ * SAM 3 does it in one call, so there is no Grounding DINO stage to add.
  */
 export const SAM3_PROMPT_DEFAULT = 'wound';
 

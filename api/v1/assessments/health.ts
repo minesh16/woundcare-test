@@ -37,16 +37,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     VERCEL_OIDC_TOKEN: Boolean(process.env.VERCEL_OIDC_TOKEN),
     SUPABASE_URL: Boolean(process.env.SUPABASE_URL),
     SUPABASE_SERVICE_ROLE_KEY: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
+    // SAM 3 on fal.ai — the first boundary provider.
+    FAL_KEY: Boolean(process.env.FAL_KEY),
     // FUSegNet on Modal — proxy auth is either the Modal-Key/Secret pair or a
     // bearer token, so neither being present is legal (a public endpoint).
     FUSEGNET_MODAL_URL: Boolean(process.env.FUSEGNET_MODAL_URL),
     MODAL_KEY: Boolean(process.env.MODAL_KEY),
     MODAL_SECRET: Boolean(process.env.MODAL_SECRET),
     FUSEGNET_AUTH_TOKEN: Boolean(process.env.FUSEGNET_AUTH_TOKEN),
-    // SAM 3 on fal.ai
-    FAL_KEY: Boolean(process.env.FAL_KEY),
-    // SAM 2 on Replicate (last fallback)
-    REPLICATE_API_TOKEN: Boolean(process.env.REPLICATE_API_TOKEN),
   };
 
   let vlmCandidates: string[] = [];

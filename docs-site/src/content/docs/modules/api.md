@@ -1,6 +1,6 @@
 ---
 title: Legacy API
-description: /api/analyze, /api/segment, the FUSegNet / SAM 3 / SAM 2 provider chain, mask selection, shared tissue ops, OpenCV.js loader.
+description: /api/analyze, /api/segment, the SAM 3 / FUSegNet provider chain, mask selection, shared tissue ops, OpenCV.js loader.
 ---
 
 Path: [`api/`](https://github.com/minesh16/woundcare-test/tree/main/api) (root-level handlers, not `v1/`)
@@ -17,24 +17,28 @@ If you touch anything under `api/`, read [Production status — deployment gotch
 | `cv.ts` | (library) | `loadCv()` — OpenCV.js WASM singleton |
 | `_segmentation.ts` | (library) | The chain: try → measure → reject → fall through, with `attempts` |
 | `_segmentationParse.ts` | (library) | **Import-free.** Provider order, image-header reader, request builders, response parsers, plausibility bounds |
-| `_fusegnet.ts` | (library) | Modal adapter (wound-specific CNN) |
 | `_sam3.ts` | (library) | fal.ai `fal-ai/sam-3/image` adapter (concept prompt) |
-| `_sam2.ts` | (library) | Replicate `meta/sam-2` adapter (last fallback) |
+| `_fusegnet.ts` | (library) | Modal adapter (wound-specific CNN) |
 | `_maskSelect.ts` | (library) | Smallest mask containing the HSV centroid; `maskStats()` |
 | `_tissueOps.ts` | (library) | `PERIWOUND_BAND_CM = 4`, `measurePeriwound`, `countMaskPixels` |
 <!-- docs-hook:auto:end:files -->
 
 ## The provider chain
 
-`SEGMENTATION_PROVIDERS` (comma-separated) sets the order. Default `fusegnet,sam3,sam2`. An unknown name is dropped rather than throwing; an all-unknown value falls back to the default, because a typo in an env var must not disable segmentation.
+`SEGMENTATION_PROVIDERS` (comma-separated) sets the order. Default `sam3,fusegnet`. An unknown name is dropped rather than throwing; an all-unknown value falls back to the default, because a typo in an env var must not disable segmentation.
 
 | Order | Provider | Prompt | Returns | Env |
 |---|---|---|---|---|
-| 1 | `fusegnet` | none — the model only segments wounds | one binary mask | `FUSEGNET_MODAL_URL` |
-| 2 | `sam3` | text concept `"wound"` + a pixel point | every match, with scores | `FAL_KEY` |
-| 3 | `sam2` | none — automatic generator | everything in the frame | `REPLICATE_API_TOKEN` |
+| 1 | `sam3` | text concept `"wound"` + a pixel point | every match, with scores | `FAL_KEY` |
+| 2 | `fusegnet` | none — the model only segments wounds | one binary mask | `FUSEGNET_MODAL_URL` |
 
-FUSegNet leads because it is the only one trained on wounds: a wound-specific mask needs no disambiguation. SAM 3 is the generalist second choice, and its concept prompt is why the old "Grounding DINO → box → SAM 2" plan is unnecessary. SAM 2 stays as the third fallback.
+Below both, the fallback is the on-device HSV mask.
+
+SAM 3 leads because FUSegNet is the more *specific* model, not the more *general* one: it is trained on chronic **foot** ulcers, so it is the preferred boundary for DFUs and an unknown quantity on a venous leg ulcer or a pressure injury. Leading with the generalist is the conservative order until the golden eval set settles it — and that is then one env var, not a code change. SAM 3's concept prompt is also why the old "Grounding DINO → box → SAM 2" plan is unnecessary.
+
+:::note[SAM 2 was removed, not demoted]
+SAM 2 on Replicate (`meta/sam-2`) used to be a third provider. It was the *automatic* mask generator — no prompt input at all — so it segmented every object in frame and the wound had to be recovered afterwards by HSV centroid. It did not work well enough to keep even as a fallback. `api/_sam2.ts`, `REPLICATE_API_TOKEN` and the `SAM2_*` vars are gone, and **Replicate is no longer a processor** — which matters for the processor register (`docs/SECURITY_AUDIT.md` MW-07).
+:::
 
 Each provider's failure is **recorded, not swallowed** — `attempts: [{provider, status, ms, reason}]` is in the response, the SSE step summary and `audit_log.models.segmentationProvider`. A boundary from the third fallback should not look identical to one from the first.
 
@@ -48,14 +52,23 @@ Each provider's failure is **recorded, not swallowed** — `attempts: [{provider
 - **`apply_mask: false`** on the fal request. With it true, fal composites the mask onto the photo, and the HSI classifier would measure the composite as tissue.
 - **SAM 3's `point_prompts` are pixels.** Every point in this app is fractional so it survives resizing, so `imageSize()` reads the real dimensions from the JPEG/PNG header (markers, not a full decode) and the point is **omitted** when the header is unreadable. A fraction sent as a pixel coordinate lands in the top-left corner and still returns a confident mask.
 - **Modal proxy auth** is the `Modal-Key` + `Modal-Secret` pair, or `Authorization: Bearer <id>.<secret>`; `FUSEGNET_AUTH_TOKEN` covers an endpoint that checks its own token.
-- **The FUSegNet response contract is adaptable without a code change.** `parseFusegnetResponse` tries several key spellings and accepts an http url, a data uri or bare base64; `FUSEGNET_MASK_FIELD` / `FUSEGNET_IMAGE_FIELD` override the request and response field names.
-- `meta/sam-2` is a **versioned** Replicate model: `_sam2.ts` resolves the latest version via `GET /v1/models/{model}` (cached) and creates the prediction with `POST /v1/predictions` + `{ version, input }` + `Prefer: wait`. The official-model endpoint returns **404** for versioned models. Pin with `SAM2_REPLICATE_VERSION`.
+- **The FUSegNet response contract is adaptable without a code change.** Its schema declares the response as an empty object, so `parseFusegnetResponse` tries several key spellings and accepts an http url, a data uri or bare base64; `FUSEGNET_MASK_FIELD` / `FUSEGNET_IMAGE_FIELD` override the field names.
+- **`box` (`[x0,y0,x1,y1]` pixels) exists on the FUSegNet request** and its schema describes it as coming "e.g. from SAM 3" — the endpoint was built to be refined after a box. Nothing passes one yet, because in a fallback chain FUSegNet only runs when SAM 3 produced nothing. A SAM 3 box → FUSegNet mask refinement pass is the obvious next architecture.
+- **`FUSEGNET_MODAL_URL` is the bare `*.modal.run` origin, and it 404s on its own.** The FastAPI app mounts `/health` and `/segment` beneath it, so `fusegnetUrl()` appends the route unless the configured URL already has a path. `FUSEGNET_SEGMENT_PATH` overrides it. This cost the first live probe.
+- **The FUSegNet request field is `image_b64`**, per the deployment's own OpenAPI schema — not `image`.
+- **Hit `GET {base}/health` first.** It is free, names the loaded weights (`FUSegNet (efficientnet-b7, pscse)`, size 512) and warms a cold container, so the first real call does not absorb a model load and time out.
 
 ### Checking it
 
-- `npm run test:segmentation` — 96 offline assertions over the wire formats.
+- `npm run test:segmentation` — 115 offline assertions over the wire formats.
 - `npm run check:segmentation` — a real call per configured provider, using the **same request builders** as the adapters, so a pass means the pipeline's request works. On an unparseable response it prints the endpoint's actual top-level keys. `--image=photo.jpg` to probe with a real wound.
 
 `_maskSelect.ts` is no longer load-bearing — FUSegNet returns one mask — but it is still the disambiguator when SAM 3's concept prompt matches several regions.
+
+### Verified live, 3 Oct 2026
+
+SAM 3 end to end: request accepted, pixel point prompt placed, one mask at score 0.803 in ~1.4–2.1 s, fetched and decoded at 8,111 px against ~8,090 px of known ellipse geometry in the probe image. That 0.3% agreement is the proof `apply_mask: false` returns a **binary mask** rather than a composited photo.
+
+FUSegNet: `/health` 200 with the model loaded, `/segment` reached — but `401 {"detail":"unauthorised"}` from the handler's own check. It needs `FUSEGNET_AUTH_TOKEN`; its inference and response shape are not yet proven.
 
 <!-- docs-hook: last auto-checked against commit e8cef6a on 2026-10-03 -->

@@ -53,14 +53,15 @@ Nothing in the list below runs on the device, which is the build spec's parity r
 
 | Workload | Host | Reached via |
 |---|---|---|
-| Wound boundary — FUSegNet | **Modal** (GPU web endpoint) | `FUSEGNET_MODAL_URL` |
-| Wound boundary — SAM 3 | **fal.ai** `fal-ai/sam-3/image` | `FAL_KEY` |
-| Wound boundary — SAM 2 (fallback) | **Replicate** `meta/sam-2` | `REPLICATE_API_TOKEN` |
+| Wound boundary — SAM 3 (first) | **fal.ai** `fal-ai/sam-3/image` | `FAL_KEY` |
+| Wound boundary — FUSegNet (fallback) | **Modal** (GPU web endpoint, `/segment`) | `FUSEGNET_MODAL_URL` |
 | Caged VLM + report LLM | **Vercel AI Gateway** | `AI_GATEWAY_API_KEY` / OIDC |
 | HSI tissue %, periwound, coin scale | Vercel Functions (OpenCV.js) — or on-device OpenCV on native | `/api/analyze`, `/api/v1/assessments/tissue` |
 | Deterministic engine | Anywhere — pure TypeScript, no network | `src/decision/engine.ts` |
 
-Segmentation is deliberately **not** on the AI Gateway: the gateway serves text / image-gen / video / speech / embedding / reranking models, and none of these three is one of those.
+Segmentation is deliberately **not** on the AI Gateway: the gateway serves text / image-gen / video / speech / embedding / reranking models, and neither of these is one of those.
+
+Replicate was a third boundary provider (SAM 2) and is **no longer used at all** — worth knowing when reading the processor register in `docs/SECURITY_AUDIT.md`.
 
 ## What works where in practice
 

@@ -1,7 +1,16 @@
 # MendWise — Application Security Audit
 
-**Scope:** full repository (`api/`, `src/`, `middleware.ts`, `supabase/`, `vercel.json`, `docs-site/`) and deployed architecture (Vercel Functions + Supabase + Vercel AI Gateway + Replicate).
+**Scope:** full repository (`api/`, `src/`, `middleware.ts`, `supabase/`, `vercel.json`, `docs-site/`) and deployed architecture (Vercel Functions + Supabase + Vercel AI Gateway + GPU segmentation).
 **Reviewed:** 26 Sep 2026, against commit `31fec6d` (branch `main`, clean tree).
+
+> **Processor change since this review (3 Oct 2026).** Segmentation moved off Replicate: SAM 2
+> (`api/_sam2.ts`) was **removed**, and the boundary now comes from **SAM 3 on fal.ai** then
+> **FUSegNet on a Modal GPU endpoint** (`api/_sam3.ts`, `api/_fusegnet.ts`). Every finding below
+> that names Replicate applies unchanged to fal.ai and Modal — the egress is the same full wound
+> image to the same class of US-default GPU infrastructure, and there is now **one more**
+> processor, not fewer. MW-07 in particular is wider, not narrower. The FUSegNet endpoint
+> additionally checks its own bearer token, which is the first authenticated hop in the system;
+> that does nothing for MW-01, which is about our own routes.
 **Posture reviewed as:** pre-revenue MVP with a pitch on 13 Oct 2026, **no real patient data in the system yet** (La Trobe HREC clearance outstanding; `supabase/README.md` restricts input to consented or public images).
 **Standards applied:** OWASP Top 10 (2021), OWASP ASVS L2 (target), Australian Privacy Principles (Privacy Act 1988, incl. the 2024 amendments), Notifiable Data Breaches scheme, HIPAA Security Rule §164.308/312 (contingent on any US deployment), TGA SaMD framework (contextual).
 
@@ -69,7 +78,7 @@ Because `audit_log` is append-only by design, a forged audit row **cannot be rem
 |---|---|---|
 | `POST /api/v1/assessments/baseline` | One unguided frontier VLM call on a caller-supplied image | 60s |
 | `POST /api/v1/assessments/vlm-features` | One frontier VLM call (`generateObject`) | 60s |
-| `POST /api/v1/assessments/run` | SAM 2 GPU (Replicate, billed per second) **+** VLM **+** report LLM, chained | **300s** |
+| `POST /api/v1/assessments/run` | GPU segmentation (fal.ai, then Modal — billed per call/second) **+** VLM **+** report LLM, chained | **300s** |
 | `POST /api/v1/assessments/tissue` | OpenCV WASM decode, `maxMemoryUsageInMB: 512` | 60s |
 | `POST /api/analyze` | OpenCV WASM decode + Hough transform | 30s |
 
@@ -92,7 +101,8 @@ The only limits in place are incidental: Vercel's 4.5 MB request-body cap, the 4
 A wound photograph leaves the device and reaches, in one request:
 
 1. **Vercel Functions** — default region `iad1` (Washington DC). `vercel.json` declares no `regions` key, so an Australian health application processes in the United States.
-2. **Replicate** (`api/_sam2.ts`) — full image as a data URL, US GPU infrastructure.
+2. **fal.ai** (`api/_sam3.ts`) — full image as a data URL, US GPU infrastructure.
+2a. **Modal** (`api/_fusegnet.ts`) — full image as base64 to our own GPU endpoint. Region is whatever the Modal app was deployed to; it is not pinned in this repo.
 3. **Vercel AI Gateway → OpenAI / Google / Anthropic** (`_gateway.ts`) — full image, plus optional wound and periwound crops.
 
 No zero-data-retention setting is configured on the gateway, no BAA or DPA is recorded for any of these processors, and the user is told none of this. The in-app consent text (`src/constants/disclaimers.ts`) covers *research use and non-reliance*; it says nothing about collection, disclosure, or overseas transfer.
@@ -130,7 +140,7 @@ Severity is assessed against the **production** target, with an MVP note where t
 |---|---|---|---|---|
 | MW-01 | No authentication or authorisation on any API route. All 11 endpoints are fully public. | `api/**/*.ts` — no handler reads an `Authorization` header | Anyone can run the pipeline, persist records, and write permanent audit rows. Blocks any clinical pilot outright. | A01, A07 / APP 11 |
 | MW-02 | Record overwrite and audit-log poisoning via client-supplied `id`. | `run.ts:47`, `evaluate.ts:32-42`, `_store.ts:78` (`upsert`) | An attacker can overwrite any assessment whose id they guess, and append forged, **unremovable** audit rows. Destroys the evidentiary value of the audit trail. | A01, A08 / APP 11 |
-| MW-03 | Unmetered spend: unauthenticated endpoints that invoke billed frontier models and GPU inference, with no rate limit. | `baseline.ts`, `vlm-features.ts`, `run.ts` (300s), no limiter anywhere | Financial DoS; `/baseline` is an open proxy to a paid LLM. A single script can exhaust the gateway and Replicate budgets before the pitch. | A04 / — |
+| MW-03 | Unmetered spend: unauthenticated endpoints that invoke billed frontier models and GPU inference, with no rate limit. | `baseline.ts`, `vlm-features.ts`, `run.ts` (300s), no limiter anywhere | Financial DoS; `/baseline` is an open proxy to a paid LLM. A single script can exhaust the gateway, fal.ai and Modal budgets before the pitch. | A04 / — |
 
 ### 2.2 High
 
@@ -139,7 +149,7 @@ Severity is assessed against the **production** target, with an MVP note where t
 | MW-04 | **SSRF** — the server fetches an arbitrary caller-supplied URL. | `api/v1/assessments/tissue.ts:47-57` (`loadMaskPng` → `fetch(source)`), reachable via `body.mask` | Internal/private-network probing, use of the platform as a request proxy, DNS-based exfiltration. Semi-blind (PNG decode failure is observable via `maskSource`). | A10 |
 | MW-05 | Audit `inputs_hash` covers almost none of the inputs and is non-cryptographic. | `_store.ts:141-149`, demonstrated above | The regulatory asset cannot substantiate the claim it is built to make. Worst finding for a clinical-assurance reviewer. | A02, A08 / APP 11 |
 | MW-06 | Assessment IDs are non-cryptographic and partly predictable. | `src/assessment/state.ts:74` (`Date.now()` + `Math.random()`) | Enables MW-02 enumeration; becomes a direct read-IDOR the moment a fetch-report endpoint is added. | A01, A02 |
-| MW-07 | Wound imagery disclosed to US processors with no contractual or technical control; functions default to `iad1`. | `_sam2.ts`, `_gateway.ts`, `vercel.json` (no `regions`), no ZDR config | Cross-border disclosure of health information without APP 8 assurance; no BAA where HIPAA applies. Blocks ethics clearance. | A04 / **APP 6, APP 8** |
+| MW-07 | Wound imagery disclosed to US processors with no contractual or technical control; functions default to `iad1`. | `_sam3.ts`, `_fusegnet.ts`, `_gateway.ts`, `vercel.json` (no `regions`), no ZDR config | Cross-border disclosure of health information without APP 8 assurance; no BAA where HIPAA applies. Blocks ethics clearance. | A04 / **APP 6, APP 8** |
 | MW-08 | No security response headers at all. | `vercel.json` has no `headers` block | No CSP, no declared HSTS, no `frame-ancestors`, no `X-Content-Type-Options`, no `Referrer-Policy`. The `/docs` passphrase form is framable (clickjacking). | A05 |
 | MW-09 | `/docs` gate is brute-forceable and the cookie is a non-expiring bearer token. | `api/docs-unlock.ts` — no rate limit, no lockout; token is HMAC over a constant message; `Secure` is conditional on `x-forwarded-proto` | Unlimited online guessing of the passphrase. A stolen cookie grants access until the passphrase is rotated. | A07 |
 | MW-10 | Wound imagery persisted unencrypted on device, with no purge. | `sessionStore.ts:77-86` — `savedReports` holds `imageUri` + `cv.overlayBase64` in AsyncStorage | Health information readable from a lost/jailbroken device and from unencrypted iOS backups. | A02 / **APP 11** |
@@ -150,7 +160,7 @@ Severity is assessed against the **production** target, with an MVP note where t
 | ID | Finding | Evidence | Impact | OWASP / APP |
 |---|---|---|---|---|
 | MW-12 | No request-body validation on ingress; `zod` is a dependency but is used only on model *output*. | All handlers; `JSON.parse` uncaught in `create.ts:23`, `run.ts:32`, `evaluate.ts:25`, `segment.ts:59` | Unbounded `wound_id` (storage abuse), unbounded base64, 500s on malformed bodies. | A03, A04 |
-| MW-13 | Upstream error text propagated to clients, the SSE stream, and audit rows. | `_sam2.ts:71,121` (Replicate body, 200 chars); `analyze.ts:201`, `tissue.ts` (raw `error.message`) | Internal detail and potentially signed-URL/token fragments reach clients and permanent storage. | A05, A09 |
+| MW-13 | Upstream error text propagated to clients, the SSE stream, and audit rows. | `_sam3.ts`, `_fusegnet.ts` (upstream body, 200 chars — and `_fusegnet.ts` now also echoes the endpoint's response *keys* on a contract mismatch); `analyze.ts:201`, `tissue.ts` (raw `error.message`) | Internal detail and potentially signed-URL/token fragments reach clients and permanent storage. | A05, A09 |
 | MW-14 | Consent is a client-side boolean; no privacy collection notice exists. | `sessionStore.ts:34`, `src/constants/disclaimers.ts` | Consent is never transmitted, recorded, timestamped or versioned — unprovable. Disclaimer ≠ collection notice. | **APP 1, 3, 5** |
 | MW-15 | No retention, deletion, access or correction mechanism. | No TTL, no delete route, no subject-access path | APP 11.2 requires destruction or de-identification when no longer needed; APP 12/13 require access and correction. | **APP 11.2, 12, 13** |
 | MW-16 | Preview deployments are an unprotected second production surface. | `docs/HANDOFF.md` (Preview carries `SUPABASE_*`, `DOCS_PASSPHRASE`); no Deployment Protection configured | Every PR publishes a public, credentialed, unauthenticated copy of the API. | A05 |
@@ -191,7 +201,7 @@ Severity is assessed against the **production** target, with an MVP note where t
 | APP 1 | Open and transparent management; privacy policy | ❌ | No privacy policy exists (MW-14) |
 | APP 3 | Consent required for sensitive information | ⚠️ | Consent is client-side only, unrecorded, unversioned (MW-14) |
 | APP 5 | Notification of collection | ❌ | Research disclaimer only; no collection notice (MW-14) |
-| APP 6 | Use and disclosure | ❌ | Disclosure to Replicate/OpenAI/Google/Anthropic is never disclosed to the user (MW-07) |
+| APP 6 | Use and disclosure | ❌ | Disclosure to fal.ai/Modal/OpenAI/Google/Anthropic is never disclosed to the user (MW-07) |
 | APP 8 | Cross-border disclosure | ❌ | US processors, no contractual assurance, `iad1` default region (MW-07) |
 | APP 11.1 | Reasonable security steps | ❌ | MW-01 through MW-11 |
 | APP 11.2 | Destroy or de-identify when no longer needed | ❌ | No retention or deletion mechanism (MW-15) |
@@ -207,7 +217,7 @@ Severity is assessed against the **production** target, with an MVP note where t
 | (c) Integrity | ❌ Records overwritable by anonymous callers (MW-02) |
 | (e)(1) Transmission security | ✅ TLS throughout |
 | (a)(2)(iv) Encryption at rest (addressable) | ⚠️ Platform-level only; device storage unencrypted (MW-10) |
-| §164.308(b) Business Associate Agreements | ❌ None recorded with Vercel, Supabase, Replicate, or any model provider |
+| §164.308(b) Business Associate Agreements | ❌ None recorded with Vercel, Supabase, fal.ai, Modal, or any model provider |
 
 **TGA (contextual, not a current gap):** the product is consistently and correctly labelled a research prototype and not a medical device, in-app and in the rules file. Note for the roadmap: software that recommends a dressing or triggers a referral is likely to fall inside the SaMD definition once the research framing is dropped, plausibly Class IIa. The "research prototype" labelling is currently functioning as a *regulatory control* — treat any change to that wording as a regulated change, not a copy edit.
 
@@ -336,7 +346,7 @@ These are the items that turn "we have no security" into "we have a perimeter an
   ```
 
   `.strict()` also gives you MW-02 defence-in-depth for free.
-- **MW-07 — data residency and processor assurance.** Set `"regions": ["syd1"]` in `vercel.json`; move the Supabase project to `ap-southeast-2`; enable zero-data-retention on the AI Gateway; obtain a DPA from Replicate or replace it with a self-hosted SAM 2 in-region. Record each in a processor register — APP 8 requires you to have taken reasonable steps, and the register is how you evidence it.
+- **MW-07 — data residency and processor assurance.** Set `"regions": ["syd1"]` in `vercel.json`; move the Supabase project to `ap-southeast-2`; enable zero-data-retention on the AI Gateway; obtain a DPA from fal.ai. **Modal is the easier win here than Replicate was:** FUSegNet is our own deployment, so it can simply be redeployed to an Australian region and pinned, which removes one cross-border hop outright rather than papering over it with a contract. Record each in a processor register — APP 8 requires you to have taken reasonable steps, and the register is how you evidence it.
 - **MW-17 — strip EXIF on-device before upload.** `expo-image-manipulator` is already a dependency; a resize/re-encode pass drops metadata and shrinks the payload:
 
   ```ts

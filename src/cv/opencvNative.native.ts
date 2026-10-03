@@ -205,7 +205,7 @@ export function runOpenCvPipeline(
       overlayBase64: overlay?.toBase64() ?? null,
       analysisEngine: 'opencv',
       coinDetected,
-      // SAM 2 point-prompt seed is computed server-side (web) from the HSV
+      // The segmentation prompt seed is computed server-side (web) from the HSV
       // centroid; the native fallback path relies on the user-tap fallback.
       hsvCentroid: null,
       maskSource: 'hsv',
