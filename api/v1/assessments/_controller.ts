@@ -1,7 +1,7 @@
 import { evaluate } from '../../../src/decision/engine';
 import type { EngineInputs } from '../../../src/decision/engine.types';
 import type { AssessmentState, StepOutcome, StepName } from '../../../src/assessment/state';
-import { isSegmentationConfigured, runSegmentation } from '../../_segmentation';
+import { isSegmentationConfigured, logSegmentation, runSegmentation } from '../../_segmentation';
 import { analyzeTissue } from './tissue';
 import { extractVlmFeatures } from './vlm-features';
 import { composeReport } from './report';
@@ -75,6 +75,7 @@ export async function runAssessment(input: RunInput, emit: StepEmitter): Promise
       imageDataUrl: input.base64.startsWith('data:') ? input.base64 : `data:image/jpeg;base64,${input.base64}`,
       point: input.state.cv?.hsvCentroid ?? null,
     });
+    logSegmentation(outcome, { assessmentId: state.id });
 
     if (!outcome.provider || !outcome.mask) {
       return {

@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 import {
   isSegmentationConfigured,
+  logSegmentation,
   runSegmentation,
   type ImagePoint,
   type SegmentationOutcome,
@@ -86,6 +87,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     imageDataUrl: base64.startsWith('data:') ? base64 : `data:image/jpeg;base64,${base64}`,
     point,
   });
+  logSegmentation(outcome, { assessmentId });
 
   const payload: SegmentStepResponse = {
     segment: {

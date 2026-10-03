@@ -498,28 +498,75 @@ a wound, and would have done so on a photo of a carpet. So:
 
 ---
 
+## The app's real flow vs the intended one (checked 3 Oct 2026)
+
+```
+intended:  capture → analyze (quality gate + SAM 3 draft) → review (clinician adjusts + APPROVES)
+                   → location → questions → result (tissue confirm + pathway) → compare
+actual:    capture → analyze ──────────────────────────────────────────────────→ location
+                   → questions → result → compare
+```
+
+**There is no `review` screen.** `src/app/` is `index, capture, location, analyze, questions,
+result, compare`; `analyze.tsx` pushes straight to `/location`. The SAM 3 draft happens — a
+proxied browser run shows `POST /api/analyze` then `POST /api/segment` — but no screen lets a
+clinician adjust or approve the boundary before the tissue percentages are measured inside it.
+For a decision-support tool whose whole claim is an auditable human-checkable chain, the missing
+approval step is the most significant product gap, not a cosmetic one.
+
+**And the main flow does not use the V2 orchestrator.** `runAssessmentStream` /
+`/api/v1/assessments/run` is imported by **`compare.tsx` only**. capture→result uses
+`/api/analyze` + `/api/segment` and then the **client-side** engine, so on a normal assessment:
+the caged VLM never runs, the report LLM never runs, and nothing is persisted or audited.
+Everything verified in the sections above about the full pipeline is real, and is currently
+reachable only from the comparison screen.
+
+### What that cost, and the stopgap
+`writeAudit` is only called from `evaluate.ts` and `_controller.ts`. `/api/segment` and
+`/api/analyze` persist nothing — so for every real assessment through the app there was **no
+record at all of which model drew the boundary**. The provider was returned in the response,
+shown in the Technical-detail toggle, and discarded.
+
+`logSegmentation()` in `api/_segmentation.ts` now emits one structured `[segment]` line from all
+three call sites (`/api/segment`, `/api/v1/assessments/segment`, and the orchestrator) with
+provider, model, promptMode, confidence, mask area and %, scores, multipleRegions, and the full
+attempt chain with reasons. Vercel retains function logs, and `writeAudit` already uses the same
+stdout fallback.
+
+It is a **stopgap, not the fix**. A boundary call is not an assessment, so writing an `audit_log`
+row per segment would put rows in there that no clinical decision corresponds to. The real fix is
+for the app's main flow to go through `run`, which audits properly — which is the same change the
+`review` screen needs, since an approve step implies a server round-trip anyway.
+
+---
+
 ## NEXT — remaining Phase 3 + backlog
 
-1. **Add `FAL_KEY`, `FUSEGNET_MODAL_URL` and `FUSEGNET_AUTH_TOKEN` to the Vercel project**
+1. **Decide the `review` step, and move the main flow onto `/api/v1/assessments/run`.** These are
+   one piece of work: an approve gate needs a server round-trip, and `run` is what audits. Today
+   capture→result bypasses the VLM, the report LLM, persistence and the audit log entirely, and
+   no screen lets a clinician approve the boundary. This is the biggest gap between what the app
+   does and what the architecture claims.
+2. **Add `FAL_KEY`, `FUSEGNET_MODAL_URL` and `FUSEGNET_AUTH_TOKEN` to the Vercel project**
    (Production **and** Preview, server-side) and redeploy. Both providers are verified
    locally; the deployment has neither, so it is currently falling back to the on-device HSV
    mask on every assessment. `REPLICATE_API_TOKEN` can be deleted at the same time.
    Confirm with `GET /api/v1/assessments/health` → `segmentation.active`.
-2. **Golden eval set** (~20–50 clinician-labelled images, Fitzpatrick-balanced) + `scripts/eval.mts`
+3. **Golden eval set** (~20–50 clinician-labelled images, Fitzpatrick-balanced) + `scripts/eval.mts`
    reporting pathway accuracy, referral sensitivity and N/A rate. Highest-value remaining work —
    and now also the thing that settles whether FUSegNet or SAM 3 should lead the chain, which is
    a one-line `SEGMENTATION_PROVIDERS` change rather than a code change. FUSegNet is
    currently second because it is a foot-ulcer model; the eval set is what should move it.
-3. Apply the Supabase migration and set the two server-side env vars.
-4. Measure per-provider boundary latency end to end and tune the `*_TIMEOUT_MS` ceilings
+4. Apply the Supabase migration and set the two server-side env vars.
+5. Measure per-provider boundary latency end to end and tune the `*_TIMEOUT_MS` ceilings
    against what the chain actually costs. Then consider the **SAM 3 box → FUSegNet mask**
    refinement pass the Modal endpoint's `box` parameter was built for.
-5. `wound_timeline` UI + the "<40 % area reduction in 4 weeks" trigger from real history.
-6. ArUco detection (`pxPerCmFromMarkerSide` is ready). `_maskSelect.ts` is no longer
+6. `wound_timeline` UI + the "<40 % area reduction in 4 weeks" trigger from real history.
+7. ArUco detection (`pxPerCmFromMarkerSide` is ready). `_maskSelect.ts` is no longer
    load-bearing — FUSegNet returns one wound mask and SAM 3 usually returns one match — but
    it is still the disambiguator when SAM 3 finds several, so it stays until the eval set
    shows the chain never needs it.
-7. La Trobe ethics clearance before any real patient imagery.
+8. La Trobe ethics clearance before any real patient imagery.
 
 ## Paste-into-Cursor prompt (Composer / agent)
 

@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 import {
   isSegmentationConfigured,
+  logSegmentation,
   runSegmentation,
   type ImagePoint,
   type MaskSelection,
@@ -103,6 +104,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
 
   // runSegmentation never throws; it reports a failed chain as provider: null.
   const outcome = await runSegmentation({ imageDataUrl: toDataUrl(base64), point });
+  // This endpoint persists nothing, so the log line is the only record of which
+  // model answered. See `logSegmentation`.
+  logSegmentation(outcome);
 
   const payload: SegmentResponse = {
     source: outcome.provider ?? 'unavailable',

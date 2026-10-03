@@ -286,6 +286,48 @@ export async function runSegmentation(args: {
   };
 }
 
+/**
+ * Log which model drew the boundary, as one structured line.
+ *
+ * `/api/segment` is the endpoint the APP actually calls, and it persists nothing:
+ * `writeAudit` is only reached from `evaluate`/`run`, which only the compare
+ * screen uses. So without this, every real assessment a clinician does through
+ * the app leaves no record of which model produced the boundary the tissue
+ * percentages were measured inside — the one fact the audit trail most needs.
+ *
+ * Deliberately stdout rather than a database row: Vercel retains function logs,
+ * `writeAudit` already uses the same fallback, and a boundary call is not an
+ * assessment — writing an `audit_log` row per segment would put rows in there
+ * that no clinical decision corresponds to. The real fix is for the app to go
+ * through `run`, which audits properly; this makes the gap observable until then.
+ *
+ * De-identified by construction: no image, no mask data, no free text from a
+ * provider beyond its own failure reason.
+ */
+export function logSegmentation(outcome: SegmentationOutcome, context?: { assessmentId?: string | null }): void {
+  console.log(
+    '[segment]',
+    JSON.stringify({
+      at: new Date().toISOString(),
+      assessmentId: context?.assessmentId ?? null,
+      provider: outcome.provider,
+      model: outcome.model,
+      promptMode: outcome.promptMode,
+      confidence: outcome.confidence,
+      maskFound: Boolean(outcome.mask),
+      areaPx: outcome.selection?.areaPx ?? null,
+      framePx: outcome.selection?.totalPx ?? null,
+      areaPct: outcome.selection ? Number(((100 * outcome.selection.areaPx) / outcome.selection.totalPx).toFixed(2)) : null,
+      scores: outcome.scores,
+      multipleRegions: outcome.multipleRegions,
+      // The whole chain, so a silent degradation is visible in the logs rather
+      // than only in a response nobody kept.
+      attempts: outcome.attempts.map((a) => ({ provider: a.provider, status: a.status, ms: a.ms, reason: a.reason ?? null })),
+      reason: outcome.reason ?? null,
+    }),
+  );
+}
+
 function summariseFailure(attempts: SegmentationAttempt[]): string {
   if (attempts.length === 0) return 'No segmentation provider is configured.';
   if (attempts.every((a) => a.status === 'skipped')) {
