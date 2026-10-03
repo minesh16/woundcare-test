@@ -10,18 +10,18 @@ Additive namespace. Core functions are callable without HTTP so `_controller.ts`
 <!-- docs-hook:auto:start:files -->
 | File | HTTP | Role |
 |---|---|---|
-| `create.ts` | `POST /api/v1/assessments/create` | Open a de-identified record, return `{ assessment_id }` |
-| `segment.ts` | `POST /api/v1/assessments/segment` | Wound boundary via the [provider chain](/docs/modules/api/#the-provider-chain) |
-| `tissue.ts` | `POST /api/v1/assessments/tissue` | HSI inside mask + periwound |
-| `vlm-features.ts` | `POST /api/v1/assessments/vlm-features` | Caged `generateObject` |
-| `evaluate.ts` | `POST /api/v1/assessments/evaluate` | `evaluate()` + audit write |
-| `report.ts` | `POST /api/v1/assessments/report` | Template + optional LLM + cage check |
-| `run.ts` | `POST /api/v1/assessments/run` | SSE orchestrator — **shipped** |
-| `health.ts` | `GET /api/v1/assessments/health` | Capability probe (env names only) |
-| `baseline.ts` | `POST /api/v1/assessments/baseline` | Ungrounded `generateText`; never feeds the engine |
 | `_controller.ts` | — | `runAssessment()` state machine |
 | `_gateway.ts` | — | Model resolution, 45 s timeout, degrade to `unavailable` |
 | `_store.ts` | — | Service-role load/save/audit/timeline; stdout fallback |
+| `baseline.ts` | `POST /api/v1/assessments/baseline` | Ungrounded `generateText`; never feeds the engine |
+| `create.ts` | `POST /api/v1/assessments/create` | Open a de-identified record, return `{ assessment_id }` |
+| `evaluate.ts` | `POST /api/v1/assessments/evaluate` | `evaluate()` + audit write |
+| `health.ts` | `GET /api/v1/assessments/health` | Capability probe (env names only) |
+| `report.ts` | `POST /api/v1/assessments/report` | Template + optional LLM + cage check |
+| `run.ts` | `POST /api/v1/assessments/run` | SSE orchestrator — **shipped** |
+| `segment.ts` | `POST /api/v1/assessments/segment` | Wound boundary via the [provider chain](/docs/modules/api/#the-provider-chain) |
+| `tissue.ts` | `POST /api/v1/assessments/tissue` | HSI inside mask + periwound |
+| `vlm-features.ts` | `POST /api/v1/assessments/vlm-features` | Caged `generateObject` |
 <!-- docs-hook:auto:end:files -->
 
 There is **no** `index.ts`. A nested `api/**/index.ts` did not route to `/api/v1/assessments` on Vercel (404 while siblings worked). Create is explicitly `create.ts`.
@@ -46,3 +46,5 @@ The build spec puts `wound_area_cm2` and `calibration` in this response. They ar
 
 1. Service-role key never leaves the server. Never `EXPO_PUBLIC_SUPABASE_*` — Expo inlines those into the client bundle, web included.
 2. DB is never on the critical path. `isStoreConfigured()` requires **both** `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. Production currently has the key but not the URL.
+
+<!-- docs-hook: last auto-checked against commit e8cef6a on 2026-10-03 -->

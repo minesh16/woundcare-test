@@ -22,4 +22,4 @@ Progress header numbers: capture/analyze = step 1, location = 2, questions = 3. 
 
 Zustand: [`src/store/sessionStore.ts`](https://github.com/minesh16/woundcare-test/blob/main/src/store/sessionStore.ts) — persisted session + last 10 saved reports. `setV2Run` will not overwrite a good V2 result with `null`.
 
-<!-- docs-hook: last auto-checked against commit 72b0cc6 on 2026-09-23 -->
+<!-- docs-hook: last auto-checked against commit e8cef6a on 2026-10-03 -->

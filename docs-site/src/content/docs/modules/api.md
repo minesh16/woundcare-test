@@ -57,3 +57,5 @@ Each provider's failure is **recorded, not swallowed** — `attempts: [{provider
 - `npm run check:segmentation` — a real call per configured provider, using the **same request builders** as the adapters, so a pass means the pipeline's request works. On an unparseable response it prints the endpoint's actual top-level keys. `--image=photo.jpg` to probe with a real wound.
 
 `_maskSelect.ts` is no longer load-bearing — FUSegNet returns one mask — but it is still the disambiguator when SAM 3's concept prompt matches several regions.
+
+<!-- docs-hook: last auto-checked against commit e8cef6a on 2026-10-03 -->

@@ -329,16 +329,24 @@ SAM 2 stays, unchanged and working, as the third fallback — additive, never de
 
 ## NEXT — remaining Phase 3 + backlog
 
-1. **Golden eval set** (~20–50 clinician-labelled images, Fitzpatrick-balanced) + `scripts/eval.mts`
-   reporting pathway accuracy, referral sensitivity and N/A rate. Highest-value remaining work.
-2. Apply the Supabase migration and set the two server-side env vars.
-3. Exercise the gateway end to end; tune `SAM2_POINTS_PER_SIDE` / `SAM2_MAX_MASKS` for latency.
-4. `wound_timeline` UI + the "<40 % area reduction in 4 weeks" trigger from real history.
-5. ArUco detection (`pxPerCmFromMarkerSide` is ready). `_maskSelect.ts` is no longer
+1. **Run `npm run check:segmentation` against the live Modal + fal endpoints.** The FUSegNet
+   response contract is assumed, not verified, and nothing in the chain has touched a GPU yet.
+   This is the cheapest high-value item and it gates everything below that needs a real mask.
+   Then add `FUSEGNET_MODAL_URL` + `FAL_KEY` (and the Modal auth pair) to the Vercel project,
+   Production **and** Preview, and redeploy — Vercel binds env vars at deploy time.
+2. **Golden eval set** (~20–50 clinician-labelled images, Fitzpatrick-balanced) + `scripts/eval.mts`
+   reporting pathway accuracy, referral sensitivity and N/A rate. Highest-value remaining work —
+   and now also the thing that settles whether FUSegNet or SAM 3 should lead the chain, which is
+   a one-line `SEGMENTATION_PROVIDERS` change rather than a code change.
+3. Apply the Supabase migration and set the two server-side env vars.
+4. Measure per-provider boundary latency end to end; tune `SAM2_POINTS_PER_SIDE` /
+   `SAM2_MAX_MASKS` and the three `*_TIMEOUT_MS` ceilings against what the chain actually costs.
+5. `wound_timeline` UI + the "<40 % area reduction in 4 weeks" trigger from real history.
+6. ArUco detection (`pxPerCmFromMarkerSide` is ready). `_maskSelect.ts` is no longer
    load-bearing — FUSegNet returns one wound mask and SAM 3 usually returns one match — but
    it is still the disambiguator when SAM 3 finds several, so it stays until the eval set
    shows the chain never needs it.
-6. La Trobe ethics clearance before any real patient imagery.
+7. La Trobe ethics clearance before any real patient imagery.
 
 ## Paste-into-Cursor prompt (Composer / agent)
 

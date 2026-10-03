@@ -10,13 +10,13 @@ The capture-time vision stack. Native runs OpenCV on-device; web POSTs the same 
 <!-- docs-hook:auto:start:files -->
 | File | Role |
 |---|---|
-| `tissueClassifier.ts` | HSV (named HSI in the product docs) pixel classes + `breakdownFromBuffer` |
 | `measureArea.ts` | 20c coin calibration, `pxPerCmFromMarkerSide` (ArUco-ready, unused) |
-| `opencvPipeline.ts` | Orchestrates native / web / fallback `analyzeWoundImage` |
-| `opencvNative.ts` | Stub Metro falls through from; real impls are platform files |
 | `opencvNative.native.ts` | `react-native-fast-opencv` pipeline; passes wound mask into tissue % |
+| `opencvNative.ts` | Stub Metro falls through from; real impls are platform files |
 | `opencvNative.web.ts` | Throws — web must not pretend to have on-device OpenCV |
+| `opencvPipeline.ts` | Orchestrates native / web / fallback `analyzeWoundImage` |
 | `segment.ts` | Client for `POST /api/segment`, no-op unless `assessmentV2`. Sends the image + centroid; the **server** picks the backend, so the client needs no change when the chain does |
+| `tissueClassifier.ts` | HSV (named HSI in the product docs) pixel classes + `breakdownFromBuffer` |
 <!-- docs-hook:auto:end:files -->
 
 ## Key exports
@@ -51,3 +51,5 @@ Epithelial is checked before slough/granulation so pale-pink new skin is not cou
 `analyze.tsx` always calls `analyzeWoundImage`, then `segmentWoundUri(..., result.hsvCentroid)`. The overlay is the model mask when present, and the technical toggle names which provider drew it and whether the chain fell back.
 
 Server-side duplicates of the tissue math live in `api/analyze.ts`, `api/_tissueOps.ts`, and `api/v1/assessments/tissue.ts` so Vercel functions do not import Metro-only native modules.
+
+<!-- docs-hook: last auto-checked against commit e8cef6a on 2026-10-03 -->

@@ -10,10 +10,10 @@ Added in Phase 2. Easy to miss in older pipeline docs.
 <!-- docs-hook:auto:start:files -->
 | File | Role |
 |---|---|
-| `state.ts` | `AssessmentState`, step types, `newAssessmentId` |
 | `client.ts` | Flag-gated fetch helpers + SSE consumer |
-| `reportTemplate.ts` | Deterministic clinician + patient documents |
 | `reportPrompt.ts` | Report LLM system prompt (zero imports — shared with smoke test) |
+| `reportTemplate.ts` | Deterministic clinician + patient documents |
+| `state.ts` | `AssessmentState`, step types, `newAssessmentId` |
 <!-- docs-hook:auto:end:files -->
 
 ## `state.ts`
@@ -48,3 +48,5 @@ Pure function of `EngineResult` + optional area / zone / tissue %. Uses `src/cop
 ## `reportPrompt.ts`
 
 `buildReportSystemPrompt(termMap)` — the only copy of the report system prompt. `report.ts` and `scripts/smoke-live.mts` both import it so the test cannot accidentally exercise a paraphrase.
+
+<!-- docs-hook: last auto-checked against commit e8cef6a on 2026-10-03 -->

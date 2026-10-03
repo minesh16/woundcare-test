@@ -9,7 +9,8 @@ Versions below are from the app `package.json` / `app.json` at last docs check.
 | Package | Version in repo |
 |---|---|
 | `expo` | `~57.0.14` |
-| `react` / `react-dom` | `19.2.3` |
+| `react` | `19.2.3` |
+| `react-dom` | `19.2.3` |
 | `react-native` | `0.86.2` |
 | `ai` | `^6.0.286` |
 | `zod` | `^4.6.5` |
@@ -81,3 +82,5 @@ There is **no** Electron / native desktop app. "Desktop" means the web build in 
 | Copy guard | `test-copy.mts` | Bans manufacturer name + jargon in UI strings |
 | Native cloud builds | EAS (`eas.json`) | development / preview / production profiles |
 | This site | Astro 7 + Starlight + `astro-mermaid` | Static docs, separate Vercel project |
+
+<!-- docs-hook: last auto-checked against commit e8cef6a on 2026-10-03 -->

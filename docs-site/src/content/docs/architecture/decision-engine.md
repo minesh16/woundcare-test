@@ -226,4 +226,4 @@ VLM-filled exudate caps at `'medium'` even if nothing else fired. Blur forces `'
 
 V2 evaluate / run pass `EngineInputs` directly, including `vlm` and `periwound`.
 
-<!-- docs-hook: last auto-checked against commit 72b0cc6 on 2026-09-23 -->
+<!-- docs-hook: last auto-checked against commit e8cef6a on 2026-10-03 -->

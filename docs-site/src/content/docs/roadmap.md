@@ -42,12 +42,24 @@ Items under **Next** are not shipped. Do not document them as live capability. G
 From HANDOFF **NEXT**, in that order of emphasis:
 
 <!-- docs-hook:auto:start:next -->
-1. **Golden eval set** (~20–50 clinician-labelled images, Fitzpatrick-balanced) + `scripts/eval.mts` reporting pathway accuracy, referral sensitivity, and N/A rate. Highest-value remaining work. *Not started* (`eval.mts` is not in `scripts/`).
-2. **Production Supabase** — set `SUPABASE_URL` (and confirm the service-role key) on the Vercel project, Production + Preview, then **redeploy**. Local migration is already applied.
-3. **Run `npm run check:segmentation` against the live Modal + fal endpoints** — the FUSegNet response contract is assumed, not verified. Then exercise the gateway end to end in prod conditions and measure boundary latency per provider.
-4. **`wound_timeline` UI** + the `<40% area reduction in 4 weeks` trigger computed from **real history** (today it is a questionnaire flag). Table already exists.
-5. **ArUco detection** — `pxPerCmFromMarkerSide` is ready; wire detection + a printable card. A point-promptable segmentation model would let `_maskSelect.ts` be deleted.
-6. **La Trobe ethics clearance** before any real patient imagery.
+1. **Run `npm run check:segmentation` against the live Modal + fal endpoints.** The FUSegNet
+   response contract is assumed, not verified, and nothing in the chain has touched a GPU yet.
+   This is the cheapest high-value item and it gates everything below that needs a real mask.
+   Then add `FUSEGNET_MODAL_URL` + `FAL_KEY` (and the Modal auth pair) to the Vercel project,
+   Production **and** Preview, and redeploy — Vercel binds env vars at deploy time.
+2. **Golden eval set** (~20–50 clinician-labelled images, Fitzpatrick-balanced) + `scripts/eval.mts`
+   reporting pathway accuracy, referral sensitivity and N/A rate. Highest-value remaining work —
+   and now also the thing that settles whether FUSegNet or SAM 3 should lead the chain, which is
+   a one-line `SEGMENTATION_PROVIDERS` change rather than a code change.
+3. Apply the Supabase migration and set the two server-side env vars.
+4. Measure per-provider boundary latency end to end; tune `SAM2_POINTS_PER_SIDE` /
+   `SAM2_MAX_MASKS` and the three `*_TIMEOUT_MS` ceilings against what the chain actually costs.
+5. `wound_timeline` UI + the "<40 % area reduction in 4 weeks" trigger from real history.
+6. ArUco detection (`pxPerCmFromMarkerSide` is ready). `_maskSelect.ts` is no longer
+   load-bearing — FUSegNet returns one wound mask and SAM 3 usually returns one match — but
+   it is still the disambiguator when SAM 3 finds several, so it stays until the eval set
+   shows the chain never needs it.
+7. La Trobe ethics clearance before any real patient imagery.
 <!-- docs-hook:auto:end:next -->
 
 ## Known issues that are not "features"
@@ -60,3 +72,5 @@ These are carry-overs, not roadmap bets:
 - Gateway credits for the pitch (Claude, and models that honour `temperature: 0`)
 - Pre-existing `app-tabs.web.tsx` `/explore` typecheck error
 - Depth remains `depthAssessed: false` everywhere (2D limitation by design)
+
+<!-- docs-hook: last auto-checked against commit e8cef6a on 2026-10-03 -->

@@ -69,3 +69,5 @@ Segmentation is deliberately **not** on the AI Gateway: the gateway serves text 
 **Web** is the pitch / Assessment 3 surface. `npm run web` (plain Metro) has **no `/api` route** — analysis falls back to the deterministic demo engine. To exercise real web analysis locally, run `npx vercel dev` so functions exist.
 
 **Desktop** = Chrome/Safari/Firefox on a laptop viewing the web build. Not a separately packaged app.
+
+<!-- docs-hook: last auto-checked against commit e8cef6a on 2026-10-03 -->
