@@ -97,8 +97,8 @@ export default function ReviewScreen() {
     });
     setBusy(false);
 
-    if (!result) {
-      setError('Could not save that outline. Check your connection and try again.');
+    if (!result.ok) {
+      setError(result.error);
       return;
     }
     if (result.plausibility !== 'plausible') {

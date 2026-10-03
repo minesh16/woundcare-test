@@ -199,28 +199,50 @@ export async function rasteriseBoundaryRemote(body: {
   assessment_id?: string;
   width?: number;
   height?: number;
-}): Promise<{
-  mask: string;
-  areaPx: number;
-  framePx: number;
-  areaPct: number;
-  plausibility: string;
-  plausibilityReason: string;
-} | null> {
-  if (!ASSESSMENT_V2) return null;
+}): Promise<
+  | {
+      ok: true;
+      mask: string;
+      areaPx: number;
+      framePx: number;
+      areaPct: number;
+      plausibility: string;
+      plausibilityReason: string;
+    }
+  | { ok: false; error: string }
+> {
+  if (!ASSESSMENT_V2) {
+    return { ok: false, error: 'The assessment pipeline is switched off in this build.' };
+  }
   try {
     const response = await fetch(url('/api/v1/assessments/mask'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
+
+    // Unlike the other helpers here, this one reports WHY. The others degrade a
+    // step the user never asked for; this is a save the clinician explicitly
+    // pressed, and "check your connection" when the real cause was a rejected
+    // polygon sends them to fix the wrong thing.
     if (!response.ok) {
-      console.warn('Boundary rasterise failed with status', response.status);
-      return null;
+      const detail = await response
+        .json()
+        .then((d: { error?: string }) => d?.error)
+        .catch(() => null);
+      return {
+        ok: false,
+        error: detail ?? `The server rejected the outline (HTTP ${response.status}).`,
+      };
     }
-    return await response.json();
+    return { ok: true, ...(await response.json()) };
   } catch (error) {
-    console.warn('Boundary rasterise request failed.', error);
-    return null;
+    return {
+      ok: false,
+      error:
+        error instanceof Error
+          ? `Could not reach the server: ${error.message}`
+          : 'Could not reach the server.',
+    };
   }
 }
