@@ -69,7 +69,7 @@ Also verified against prod on 21 Sep 2026 (from `HANDOFF.md`, not re-hit as a fu
 | | Local (`.env.local`) | Production Vercel |
 |---|---|---|
 | Gateway | Works (`check:gateway`, `smoke:live` 15/15) | Works, **free tier** |
-| Boundary segmentation | **SAM 3 verified end to end** (3 Oct 2026): mask returned, decoded and measured within 0.3% of known geometry. FUSegNet `/health` 200 but `/segment` 401 — needs `FUSEGNET_AUTH_TOKEN` | Neither set yet. The removed SAM 2's token is all that is there, and nothing reads it |
+| Boundary segmentation | **Both verified end to end** (3 Oct 2026). SAM 3: mask within 0.3% of known geometry. FUSegNet: decoded area matches its own `area_px` exactly | **Neither is set.** The deployment has no boundary provider at all and falls back to the on-device HSV mask on every assessment. The removed SAM 2's token is all that is there, and nothing reads it |
 | Supabase schema | Applied (`db:migrate`) | Applied, and functions reach it since 23 Sep 2026 |
 | Audit | Real Postgres rows (smoke verified) | Real Postgres rows (stdout only before 23 Sep 2026) |
 

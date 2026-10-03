@@ -230,7 +230,16 @@ if (!fusegReq) {
           console.error(`  → body starts: ${text.slice(0, 300)}`);
         } else {
           console.log(`  OK mask: ${await measureMask(parsed.mask)}`);
-          console.log(`  score: ${parsed.score ?? 'not reported'}, area_px: ${parsed.areaPx ?? 'not reported'}`);
+          console.log(
+            `  model: ${parsed.model ?? 'not reported'}, mean_prob: ${parsed.score ?? 'not reported'}, ` +
+              `area_px: ${parsed.areaPx ?? 'not reported'}, multiple_regions: ${parsed.multipleRegions ?? 'not reported'}`,
+          );
+          if (!imageArg) {
+            // Worth stating every time on the synthetic image: a confident mask
+            // here is not a working wound detector, it is the absence of one.
+            console.log('  note: FUSegNet has no abstain — a high mean_prob on this non-wound image');
+            console.log('        is expected and is not evidence the model found a wound.');
+          }
         }
       }
     }

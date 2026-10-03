@@ -265,8 +265,9 @@ export function describePlausibility(verdict: MaskPlausibility): string {
 // ---------------------------------------------------------------------------
 
 /**
- * The request contract, verified against the deployed endpoint's own OpenAPI
- * schema (`GET {base}/openapi.json`, title "MendWise FUSegNet"):
+ * The contract, verified against the deployed endpoint's own OpenAPI schema
+ * (`GET {base}/openapi.json`, title "MendWise FUSegNet") and against a real
+ * authenticated call:
  *
  *   POST {base}/segment
  *   { image_b64: string,          // JPEG/PNG base64; a data-uri prefix is allowed
@@ -278,9 +279,23 @@ export function describePlausibility(verdict: MaskPlausibility): string {
  * `GET {base}/health` returns `{ ok, model, size }` and is the cheap liveness
  * check (it also warms a cold container).
  *
- * The response shape is *not* in the schema, so `parseFusegnetResponse` stays
- * tolerant about naming and `npm run check:segmentation` prints the endpoint's
- * actual keys — a mismatch is then a one-line `FUSEGNET_MASK_FIELD` fix.
+ * The response is *not* in the schema (it is declared as an untyped object), so
+ * it was read off a live call instead:
+ *
+ *   { mask_png_b64: <bare base64 PNG>,   // not `mask`, not a data uri
+ *     area_px: 3346,
+ *     mean_prob: 0.95,                   // see FUSEGNET_SCORE_KEYS — not an abstain signal
+ *     regions: { regions_found, regions_kept, regions_dropped,
+ *                multiple_regions, min_region_px },
+ *     width, height, crop: [x0,y0,x1,y1], size: 512,
+ *     model: "fusegnet-effb7-pscse", latency_ms }
+ *
+ * `crop` echoes the box the model actually ran on — the full frame when no `box`
+ * is sent — which is the endpoint confirming it was built for box refinement.
+ *
+ * `parseFusegnetResponse` stays tolerant about naming anyway, since nothing
+ * validates this, and `npm run check:segmentation` prints the real keys on a
+ * mismatch — which is how `mask_png_b64` was found in the first place.
  */
 export const FUSEGNET_IMAGE_FIELD_DEFAULT = 'image_b64';
 
@@ -293,8 +308,16 @@ export const FUSEGNET_IMAGE_FIELD_DEFAULT = 'image_b64';
 export const FUSEGNET_SEGMENT_PATH_DEFAULT = '/segment';
 export const FUSEGNET_HEALTH_PATH = '/health';
 
-/** Response keys searched, in order, for the binary wound mask. */
+/**
+ * Response keys searched, in order, for the binary wound mask.
+ *
+ * `mask_png_b64` is what the deployed endpoint actually uses (verified live) and
+ * is first. The rest are kept as a tolerance list for a handler change — the
+ * endpoint's OpenAPI schema declares its response as an untyped object, so there
+ * is nothing to validate against and the probe is the only real check.
+ */
 export const FUSEGNET_MASK_KEYS: readonly string[] = [
+  'mask_png_b64',
   'mask',
   'mask_png',
   'mask_base64',
@@ -306,12 +329,21 @@ export const FUSEGNET_MASK_KEYS: readonly string[] = [
   'output',
 ];
 
-/** Response keys searched, in order, for a scalar confidence. */
+/**
+ * Response keys searched, in order, for a scalar confidence. The deployed
+ * endpoint reports `mean_prob`.
+ *
+ * ⚠️ Read it as "how confident the network is in the pixels it chose", NOT as
+ * "is there a wound here". FUSegNet has **no abstain**: on a synthetic image
+ * containing no wound at all it returned a 3,346 px mask at `mean_prob` 0.95.
+ * This is why `maskPlausibility` exists and why the score only ever *downgrades*
+ * confidence here — it can never establish that a boundary is real.
+ */
 export const FUSEGNET_SCORE_KEYS: readonly string[] = [
+  'mean_prob',
   'confidence',
   'score',
   'mean_probability',
-  'mean_prob',
   'probability',
   'dice',
 ];
@@ -439,12 +471,24 @@ export type FusegnetParsed = {
   mask: string | null;
   score: number | null;
   areaPx: number | null;
+  /** The weights the endpoint says it ran, e.g. `fusegnet-effb7-pscse`. */
+  model: string | null;
+  /**
+   * The endpoint's own connected-component filtering, when it reports it:
+   * `{ regions_found, regions_kept, regions_dropped, multiple_regions, min_region_px }`.
+   * `multiple_regions` is the clinically interesting one — satellite lesions, or
+   * two wounds in one frame — and is recorded rather than acted on, because
+   * acting on it is the engine's business and needs clinical grounding first.
+   */
+  multipleRegions: boolean | null;
   /** Top-level keys of the response — surfaced so a contract mismatch is legible. */
   keys: string[];
 };
 
 export function parseFusegnetResponse(json: unknown, maskField?: string | null): FusegnetParsed {
-  if (!json || typeof json !== 'object') return { mask: null, score: null, areaPx: null, keys: [] };
+  if (!json || typeof json !== 'object') {
+    return { mask: null, score: null, areaPx: null, model: null, multipleRegions: null, keys: [] };
+  }
   const body = json as Record<string, unknown>;
   const keys = Object.keys(body);
 
@@ -466,10 +510,18 @@ export function parseFusegnetResponse(json: unknown, maskField?: string | null):
     }
   }
 
+  const regions = body.regions;
+  const multipleRegions =
+    regions && typeof regions === 'object' && typeof (regions as Record<string, unknown>).multiple_regions === 'boolean'
+      ? ((regions as Record<string, unknown>).multiple_regions as boolean)
+      : null;
+
   return {
     mask,
     score: firstNumber(body, FUSEGNET_SCORE_KEYS),
     areaPx: firstNumber(body, FUSEGNET_AREA_KEYS),
+    model: typeof body.model === 'string' && body.model ? body.model : null,
+    multipleRegions,
     keys,
   };
 }

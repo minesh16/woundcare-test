@@ -72,6 +72,13 @@ export type SegmentationOutcome = {
   selection: MaskSelection | null;
   /** Per-mask scores, when the provider reports them (SAM 3 does). */
   scores: number[] | null;
+  /**
+   * The provider saw more than one disconnected region — satellite lesions, two
+   * wounds in one frame, or a boundary that broke up. Recorded, not acted on:
+   * acting on it is a clinical judgement that belongs to the engine.
+   * Null when the provider does not report it.
+   */
+  multipleRegions: boolean | null;
   confidence: MaskConfidence;
   model: string | null;
   promptMode: PromptMode | null;
@@ -86,6 +93,7 @@ type Candidate = {
   masks: string[];
   selection: MaskSelection | null;
   scores: number[] | null;
+  multipleRegions: boolean | null;
   confidence: MaskConfidence;
   model: string;
   promptMode: PromptMode;
@@ -153,6 +161,7 @@ async function tryFusegnet(imageDataUrl: string): Promise<Candidate> {
     masks: [mask],
     selection: { index: 0, maskUrl: mask, areaPx: stats.areaPx, totalPx: stats.totalPx },
     scores: typeof result.score === 'number' ? [result.score] : null,
+    multipleRegions: result.multipleRegions,
     confidence: fusegnetConfidence(result.score),
     model: result.model,
     promptMode: 'wound-specific',
@@ -176,6 +185,8 @@ async function trySam3(imageDataUrl: string, point: ImagePoint | null): Promise<
       masks: result.masks,
       selection: { index: 0, maskUrl: mask, areaPx: stats.areaPx, totalPx: stats.totalPx },
       scores: result.scores,
+      // One match from a concept prompt is, by definition, one region.
+      multipleRegions: false,
       confidence: confidenceFromScore(result.scores?.[0] ?? null),
       model: result.model,
       promptMode: 'concept',
@@ -205,6 +216,8 @@ async function trySam3(imageDataUrl: string, point: ImagePoint | null): Promise<
     masks: result.masks,
     selection: selection ?? null,
     scores: result.scores,
+    // SAM 3 matched the concept more than once in this frame.
+    multipleRegions: result.masks.length > 1,
     confidence: selection ? 'high' : 'medium',
     model: result.model,
     promptMode: 'concept',
@@ -264,6 +277,7 @@ export async function runSegmentation(args: {
     masks: [],
     selection: null,
     scores: null,
+    multipleRegions: null,
     confidence: 'low',
     model: null,
     promptMode: null,

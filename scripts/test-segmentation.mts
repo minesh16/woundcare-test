@@ -289,6 +289,39 @@ eq('the health url is derived from the same origin', fusegnetHealthUrl({ FUSEGNE
 check('no health url without a configured origin', fusegnetHealthUrl({}) === null);
 
 const longBase64 = 'A'.repeat(120);
+
+// The real response, as read off a live authenticated call. `mask_png_b64` is the
+// key the deployed endpoint actually uses — it was NOT in the first version of
+// the tolerance list, which is exactly the mismatch the live probe surfaced.
+const liveShape = parseFusegnetResponse({
+  mask_png_b64: longBase64,
+  area_px: 3346,
+  regions: { regions_found: 3, regions_kept: 1, regions_dropped: 2, multiple_regions: false, min_region_px: 50 },
+  mean_prob: 0.9507441520690918,
+  width: 256,
+  height: 256,
+  crop: [0, 0, 256, 256],
+  size: 512,
+  model: 'fusegnet-effb7-pscse',
+  latency_ms: 1162,
+});
+eq('the live response shape yields a mask', liveShape.mask, `data:image/png;base64,${longBase64}`);
+eq('…its mean_prob as the score', liveShape.score, 0.9507441520690918);
+eq('…its area_px', liveShape.areaPx, 3346);
+eq('…the weights it says it ran, for the audit log', liveShape.model, 'fusegnet-effb7-pscse');
+eq('…and whether it saw more than one region', liveShape.multipleRegions, false);
+eq(
+  'multiple_regions true is carried through',
+  parseFusegnetResponse({ mask_png_b64: longBase64, regions: { multiple_regions: true } }).multipleRegions,
+  true,
+);
+eq(
+  'a missing regions block is null, not false — "not reported" is not "one region"',
+  parseFusegnetResponse({ mask_png_b64: longBase64 }).multipleRegions,
+  null,
+);
+eq('a missing model is null, so the audit falls back rather than inventing one', parseFusegnetResponse({ mask_png_b64: longBase64 }).model, null);
+
 eq(
   'a bare-base64 mask is normalised to a png data uri',
   parseFusegnetResponse({ mask: longBase64 }).mask,

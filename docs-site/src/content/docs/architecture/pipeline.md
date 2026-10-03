@@ -81,6 +81,8 @@ Two backends, tried in order — full detail in [Legacy API → the provider cha
 
 SAM 2 on Replicate was a third provider and has been removed — it took no prompt and segmented everything in frame.
 
+**FUSegNet has no abstain.** On a test image containing no wound it returned a mask at `mean_prob` 0.95, where SAM 3 correctly returned no match. Its score cannot be read as "there is a wound here", which is why the plausibility check below is the real guard and not a formality.
+
 A returned mask is measured before it is used: under 0.05% or over 60% of the frame and it is rejected and the next provider tried. Every attempt is recorded. Both providers unconfigured or failing → HSV mask, confidence downgraded, step `degraded`.
 
 The client picks nothing — the chain is server-side, so native and web behave identically. The orchestrator calls the same facade inside `_controller.ts` rather than HTTP-self-fetching.

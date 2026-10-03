@@ -1,7 +1,13 @@
 /** Docs-site version log. App capability lives on /operations/status/, not here. */
-export const docsVersion = '0.3.1';
+export const docsVersion = '0.3.2';
 
 export const changelog: { date: string; version: string; change: string }[] = [
+	{
+		date: '2026-10-03',
+		version: '0.3.2',
+		change:
+			'Both boundary providers verified live. FUSegNet\'s response contract pinned from a real call (mask_png_b64, area_px, mean_prob, regions, crop, model) and its decoded mask area matches its own area_px exactly. The finding worth keeping: FUSegNet has no abstain — it returned a mask at mean_prob 0.95 on an image with no wound in it, where SAM 3 correctly returned no match. mean_prob can only downgrade confidence, never establish it.',
+	},
 	{
 		date: '2026-10-03',
 		version: '0.3.1',

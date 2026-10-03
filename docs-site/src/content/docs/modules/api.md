@@ -52,23 +52,40 @@ Each provider's failure is **recorded, not swallowed** — `attempts: [{provider
 - **`apply_mask: false`** on the fal request. With it true, fal composites the mask onto the photo, and the HSI classifier would measure the composite as tissue.
 - **SAM 3's `point_prompts` are pixels.** Every point in this app is fractional so it survives resizing, so `imageSize()` reads the real dimensions from the JPEG/PNG header (markers, not a full decode) and the point is **omitted** when the header is unreadable. A fraction sent as a pixel coordinate lands in the top-left corner and still returns a confident mask.
 - **Modal proxy auth** is the `Modal-Key` + `Modal-Secret` pair, or `Authorization: Bearer <id>.<secret>`; `FUSEGNET_AUTH_TOKEN` covers an endpoint that checks its own token.
-- **The FUSegNet response contract is adaptable without a code change.** Its schema declares the response as an empty object, so `parseFusegnetResponse` tries several key spellings and accepts an http url, a data uri or bare base64; `FUSEGNET_MASK_FIELD` / `FUSEGNET_IMAGE_FIELD` override the field names.
+- **The FUSegNet response is not in its schema** (declared as an untyped object), so it was read off a live call:
+
+  ```json
+  { "mask_png_b64": "<bare base64 PNG>", "area_px": 3346, "mean_prob": 0.95,
+    "regions": { "regions_found": 3, "regions_kept": 1, "regions_dropped": 2,
+                 "multiple_regions": false, "min_region_px": 50 },
+    "width": 256, "height": 256, "crop": [0, 0, 256, 256], "size": 512,
+    "model": "fusegnet-effb7-pscse", "latency_ms": 1162 }
+  ```
+
+  `model` goes into `audit_log.models.segmentation` — the endpoint knows which weights ran and we don't. `regions.multiple_regions` is recorded as `multipleRegions` and deliberately not acted on. `crop` echoes the box the model ran on. `parseFusegnetResponse` stays tolerant anyway, and `FUSEGNET_MASK_FIELD` overrides it.
 - **`box` (`[x0,y0,x1,y1]` pixels) exists on the FUSegNet request** and its schema describes it as coming "e.g. from SAM 3" — the endpoint was built to be refined after a box. Nothing passes one yet, because in a fallback chain FUSegNet only runs when SAM 3 produced nothing. A SAM 3 box → FUSegNet mask refinement pass is the obvious next architecture.
 - **`FUSEGNET_MODAL_URL` is the bare `*.modal.run` origin, and it 404s on its own.** The FastAPI app mounts `/health` and `/segment` beneath it, so `fusegnetUrl()` appends the route unless the configured URL already has a path. `FUSEGNET_SEGMENT_PATH` overrides it. This cost the first live probe.
-- **The FUSegNet request field is `image_b64`**, per the deployment's own OpenAPI schema — not `image`.
+- **The FUSegNet request field is `image_b64`** and the response field is **`mask_png_b64`** (bare base64, no data-uri prefix). Neither is what you would guess; `mask_png_base64` was in the first tolerance list and did not match.
 - **Hit `GET {base}/health` first.** It is free, names the loaded weights (`FUSegNet (efficientnet-b7, pscse)`, size 512) and warms a cold container, so the first real call does not absorb a model load and time out.
 
 ### Checking it
 
-- `npm run test:segmentation` — 115 offline assertions over the wire formats.
+- `npm run test:segmentation` — 123 offline assertions over the wire formats, including the real FUSegNet response shape.
 - `npm run check:segmentation` — a real call per configured provider, using the **same request builders** as the adapters, so a pass means the pipeline's request works. On an unparseable response it prints the endpoint's actual top-level keys. `--image=photo.jpg` to probe with a real wound.
 
 `_maskSelect.ts` is no longer load-bearing — FUSegNet returns one mask — but it is still the disambiguator when SAM 3's concept prompt matches several regions.
 
 ### Verified live, 3 Oct 2026
 
-SAM 3 end to end: request accepted, pixel point prompt placed, one mask at score 0.803 in ~1.4–2.1 s, fetched and decoded at 8,111 px against ~8,090 px of known ellipse geometry in the probe image. That 0.3% agreement is the proof `apply_mask: false` returns a **binary mask** rather than a composited photo.
+Both providers pass end to end.
 
-FUSegNet: `/health` 200 with the model loaded, `/segment` reached — but `401 {"detail":"unauthorised"}` from the handler's own check. It needs `FUSEGNET_AUTH_TOKEN`; its inference and response shape are not yet proven.
+- **SAM 3**: one mask at score 0.803, fetched and decoded at 8,111 px against ~8,090 px of known ellipse geometry in the probe image. That 0.3% agreement is the proof `apply_mask: false` returns a **binary mask** rather than a composited photo. 1.0–3.5 s typical.
+- **FUSegNet**: `/segment` 200 in ~2.1 s, mask decodes to **3,346 px — exactly its own reported `area_px`**, which cross-checks the decode path. `/health` 1.4 s warm, 12.5–13.4 s cold.
+
+:::caution[FUSegNet has no abstain — and this is the important result]
+The probe image contains an ellipse and no wound. SAM 3 correctly returned **no match** for `"wound"`. FUSegNet returned a 3,346 px mask at `mean_prob` **0.95**, and would do the same on a photo of a carpet.
+
+So `mean_prob` means "how sure the network is about the pixels it chose", **not** "is there a wound here". In this codebase it can only ever *downgrade* confidence — it can never establish that a boundary is real. That makes the plausibility gate load-bearing rather than defensive decoration, and it is a second independent argument for SAM 3 leading, alongside the foot-ulcer one.
+:::
 
 <!-- docs-hook: last auto-checked against commit 83600ff on 2026-10-03 -->
