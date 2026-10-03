@@ -133,7 +133,19 @@ export type AuditRecord = {
   referralCodes: string[];
   confidence: string;
   rulesVersion: string;
-  models: { vlm?: string; llm?: string; segmentation?: string };
+  /**
+   * The exact models behind the result. `models` is a jsonb column, so adding a
+   * key here needs no migration. `segmentation` is the model label and
+   * `segmentationProvider` the backend that answered — both, because the chain
+   * means "which model drew this boundary" is no longer a constant, and a
+   * boundary from the third fallback is a different result from the same inputs.
+   */
+  models: {
+    vlm?: string;
+    llm?: string;
+    segmentation?: string;
+    segmentationProvider?: string;
+  };
   steps: StepOutcome[];
 };
 
@@ -167,6 +179,7 @@ export function buildAuditRecord(
     models: {
       vlm: state.vlmModel ?? undefined,
       segmentation: state.segment?.model,
+      segmentationProvider: state.segment?.source === 'unavailable' ? undefined : state.segment?.source,
       llm: state.report?.model,
     },
     steps: state.steps ?? [],

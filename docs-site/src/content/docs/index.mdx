@@ -34,7 +34,7 @@ Two published guides become code:
 - **CWCS** (Australian Government, Dept of Health & Aged Care) — a 26-row lookup: tissue × exudate × infection → primary and secondary dressing categories. Encoded in [`src/decision/engine.ts`](https://github.com/minesh16/woundcare-test/blob/main/src/decision/engine.ts) as `CWCS_PATHWAYS`, currently version `cwcs-2024.1+recon.1`.
 - **Mölnlycke 10-step local wound assessment** — referral / escalation triggers (probe-to-bone, ABPI, DFU, LOPS, necrotic tissue, …). Same file, `molnlyckeFlags()`. The manufacturer's name stays in the engine, types, and these docs as **provenance**; it is stripped from patient-facing UI.
 
-AI never emits a pathway. SAM 2 finds a boundary. OpenCV HSI counts tissue inside that boundary. A frontier VLM returns only Zod-validated enums. A frontier LLM writes up facts the engine has already decided. The five invariants that enforce this are [the cage](/docs/architecture/#the-cage).
+AI never emits a pathway. A segmentation model finds a boundary — FUSegNet on Modal, else SAM 3 on fal.ai, else SAM 2 on Replicate. OpenCV HSI counts tissue inside that boundary. A frontier VLM returns only Zod-validated enums. A frontier LLM writes up facts the engine has already decided. The five invariants that enforce this are [the cage](/docs/architecture/#the-cage).
 
 ## Who it is for
 

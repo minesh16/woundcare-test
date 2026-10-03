@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
+import { providerStatus } from '../../_segmentation';
 import { isGatewayConfigured, resolveModelCandidates } from './_gateway';
 import { isStoreConfigured } from './_store';
 
@@ -24,12 +25,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
   const gateway = isGatewayConfigured();
   const store = isStoreConfigured();
 
+  // The boundary chain, in the order it will actually be tried. This is the
+  // question worth answering from outside: not "is segmentation on" but "which
+  // backend will answer", because a deployment silently running on the third
+  // fallback produces worse boundaries while looking entirely healthy.
+  const providers = providerStatus();
+
   // Which of the vars each capability needs are actually present. Names only.
   const env = {
     AI_GATEWAY_API_KEY: Boolean(process.env.AI_GATEWAY_API_KEY),
     VERCEL_OIDC_TOKEN: Boolean(process.env.VERCEL_OIDC_TOKEN),
     SUPABASE_URL: Boolean(process.env.SUPABASE_URL),
     SUPABASE_SERVICE_ROLE_KEY: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
+    // FUSegNet on Modal — proxy auth is either the Modal-Key/Secret pair or a
+    // bearer token, so neither being present is legal (a public endpoint).
+    FUSEGNET_MODAL_URL: Boolean(process.env.FUSEGNET_MODAL_URL),
+    MODAL_KEY: Boolean(process.env.MODAL_KEY),
+    MODAL_SECRET: Boolean(process.env.MODAL_SECRET),
+    FUSEGNET_AUTH_TOKEN: Boolean(process.env.FUSEGNET_AUTH_TOKEN),
+    // SAM 3 on fal.ai
+    FAL_KEY: Boolean(process.env.FAL_KEY),
+    // SAM 2 on Replicate (last fallback)
     REPLICATE_API_TOKEN: Boolean(process.env.REPLICATE_API_TOKEN),
   };
 
@@ -47,9 +63,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       // What each of these means when false:
       gateway,      // → the caged VLM pass and report LLM degrade to "unavailable"
       store,        // → assessments are returned but not persisted; audit goes to stdout
-      segmentation: Boolean(process.env.REPLICATE_API_TOKEN), // → falls back to the HSV mask
+      segmentation: providers.some((p) => p.configured), // → falls back to the HSV mask
     },
     env,
+    /** In try-order. The first `configured: true` is the backend that will draw boundaries. */
+    segmentation: {
+      order: providers.map((p) => p.provider),
+      providers,
+      active: providers.find((p) => p.configured)?.provider ?? null,
+    },
     models: { vlm: vlmCandidates, llm: llmCandidates },
     engine: 'always available — the deterministic decision never depends on any of the above',
   });

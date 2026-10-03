@@ -1,11 +1,11 @@
 ---
 title: CV module
-description: OpenCV pipeline, tissue classification, measurement, SAM 2 client, and platform splits.
+description: OpenCV pipeline, tissue classification, measurement, the boundary-segmentation client, and platform splits.
 ---
 
 Path: [`src/cv/`](https://github.com/minesh16/woundcare-test/tree/main/src/cv)
 
-The capture-time vision stack. Native runs OpenCV on-device; web POSTs the same job to `/api/analyze`. SAM 2 is additive and flag-gated.
+The capture-time vision stack. Native runs OpenCV on-device; web POSTs the same job to `/api/analyze`. Boundary segmentation is additive and flag-gated.
 
 <!-- docs-hook:auto:start:files -->
 | File | Role |
@@ -16,7 +16,7 @@ The capture-time vision stack. Native runs OpenCV on-device; web POSTs the same 
 | `opencvNative.ts` | Stub Metro falls through from; real impls are platform files |
 | `opencvNative.native.ts` | `react-native-fast-opencv` pipeline; passes wound mask into tissue % |
 | `opencvNative.web.ts` | Throws — web must not pretend to have on-device OpenCV |
-| `segment.ts` | Client for `POST /api/segment` (SAM 2), no-op unless `assessmentV2` |
+| `segment.ts` | Client for `POST /api/segment`, no-op unless `assessmentV2`. Sends the image + centroid; the **server** picks the backend, so the client needs no change when the chain does |
 <!-- docs-hook:auto:end:files -->
 
 ## Key exports
@@ -48,6 +48,6 @@ Epithelial is checked before slough/granulation so pale-pink new skin is not cou
 
 ## Wiring
 
-`analyze.tsx` always calls `analyzeWoundImage`, then `segmentWoundUri(..., result.hsvCentroid)`. The overlay is the SAM mask when present.
+`analyze.tsx` always calls `analyzeWoundImage`, then `segmentWoundUri(..., result.hsvCentroid)`. The overlay is the model mask when present, and the technical toggle names which provider drew it and whether the chain fell back.
 
 Server-side duplicates of the tissue math live in `api/analyze.ts`, `api/_tissueOps.ts`, and `api/v1/assessments/tissue.ts` so Vercel functions do not import Metro-only native modules.

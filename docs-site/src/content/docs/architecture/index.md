@@ -14,10 +14,10 @@ Architecture diagrams are pan/zoomable. Use the toolbar, scroll to zoom, drag to
 Five non-negotiable invariants. They are also in [`.cursor/rules/mendwise.mdc`](https://github.com/minesh16/woundcare-test/blob/main/.cursor/rules/mendwise.mdc) and [`docs/HANDOFF.md`](https://github.com/minesh16/woundcare-test/blob/main/docs/HANDOFF.md).
 
 1. **Determinism is authoritative.** The CWCS 26-pathway table and Mölnlycke referral triggers in [`src/decision/engine.ts`](https://github.com/minesh16/woundcare-test/blob/main/src/decision/engine.ts) make the dressing / referral decision. AI only produces *inputs* and narrates *outputs* — it never emits a pathway.
-2. **AI is caged.** SAM 2 = boundary only. OpenCV HSI = tissue % only. Frontier VLM = strict-JSON enums only (`generateObject` + Zod, `temperature: 0`, no free-text field). Frontier LLM = report generation from already-decided facts only.
-3. **Additive, never destructive.** New work sits behind the `assessmentV2` flag ([`src/config/featureFlags.ts`](https://github.com/minesh16/woundcare-test/blob/main/src/config/featureFlags.ts), `EXPO_PUBLIC_ASSESSMENT_V2`) and `/api/v1/assessments/*`. The original HSV flow remains as capture quality-gate, offline fallback, and SAM prompt-seed (centroid used to *select* a mask, not to prompt the model — `meta/sam-2` has no point/box input).
+2. **AI is caged.** Segmentation (FUSegNet → SAM 3 → SAM 2) = boundary only. OpenCV HSI = tissue % only. Frontier VLM = strict-JSON enums only (`generateObject` + Zod, `temperature: 0`, no free-text field). Frontier LLM = report generation from already-decided facts only.
+3. **Additive, never destructive.** New work sits behind the `assessmentV2` flag ([`src/config/featureFlags.ts`](https://github.com/minesh16/woundcare-test/blob/main/src/config/featureFlags.ts), `EXPO_PUBLIC_ASSESSMENT_V2`) and `/api/v1/assessments/*`. The original HSV flow remains as capture quality-gate, offline fallback, and segmentation prompt-seed. What the centroid does depends on the backend: ignored by FUSegNet (wound-only), sent as a pixel point prompt to SAM 3, and used to *select* a mask for SAM 2, which has no prompt input at all.
 4. **Conservative by default.** No marker / low confidence / conflicting signals → "incomplete, retake or escalate". Never a confident dressing call at low confidence. The safety gate **withholds** the pathway (`pathwayWithheld`, `gateCodes`) rather than stating one weakly.
-5. **No model fine-tuning.** Zero-shot SAM 2 and frontier VLM / LLM only.
+5. **No model fine-tuning.** Pre-trained segmentation (zero-shot SAM, published FUSegNet weights) and frontier VLM / LLM. We train nothing.
 
 `src/decision/engine.ts` stays a single self-contained runtime file (`import type` only from `engine.types.ts`) so `npm run test:rules` runs under `node --experimental-strip-types` with no build step.
 
@@ -42,7 +42,7 @@ flowchart TB
   end
 
   subgraph Inference["Caged inference"]
-    SAM["Replicate GPU\nmeta/sam-2 — boundary only"]
+    SAM["Boundary chain — boundary only\nFUSegNet on Modal → SAM 3 on fal.ai\n→ SAM 2 on Replicate"]
     GW["Vercel AI Gateway\nVLM: generateObject + Zod\nLLM: report from decided facts"]
   end
 
@@ -91,7 +91,7 @@ sequenceDiagram
   Analyze->>API: POST /api/analyze (web) or on-device OpenCV
   API-->>Analyze: CvResult (tissue %, area, hsvCentroid)
   opt assessmentV2
-    Analyze->>API: POST /api/segment (SAM 2)
+    Analyze->>API: POST /api/segment (boundary chain)
     API-->>Analyze: wound mask overlay
   end
   Analyze->>Location: Continue
@@ -115,7 +115,7 @@ The SSE orchestrator is **shipped**, not roadmap. [`api/v1/assessments/run.ts`](
 | Step | Who | What it is allowed to do |
 |---|---|---|
 | Capture quality + HSV centroid | OpenCV (native or `/api/analyze`) | Blur / exposure / coin; seed for mask selection |
-| Boundary | SAM 2 on Replicate | A mask. Nothing clinical |
+| Boundary | FUSegNet (Modal) → SAM 3 (fal.ai) → SAM 2 (Replicate) | A mask. Nothing clinical |
 | Tissue % + periwound | HSI inside the mask (`tissue.ts`, `_tissueOps.ts`) | Percentages and a 4 cm ring, or `periwound: null` if no scale |
 | Visual signs | Caged VLM (`vlm-features.ts`) | Enums in `vlm.schema.ts`. `uncertain` always legal |
 | Q&A | `questions.tsx` | Exudate, infection, perfusion, ABPI band, … |
@@ -129,6 +129,6 @@ The [pipeline page](/docs/architecture/pipeline/) walks that list as a data-flow
 
 The original demo flow (`capture → analyze → location → questions → result`) still compiles and runs with the flag off. `assess()` in [`src/decision/rules.ts`](https://github.com/minesh16/woundcare-test/blob/main/src/decision/rules.ts) already calls `evaluate()`, so even the "legacy" result screen is backed by the CWCS engine.
 
-The V2 namespace adds server-side SAM 2, mask-restricted tissue, VLM, report LLM, SSE, persistence, and the comparison arm. Callers in [`src/assessment/client.ts`](https://github.com/minesh16/woundcare-test/blob/main/src/assessment/client.ts) return `null` when the flag is off or the network fails, so a missing server never breaks the demo.
+The V2 namespace adds server-side boundary segmentation, mask-restricted tissue, VLM, report LLM, SSE, persistence, and the comparison arm. Callers in [`src/assessment/client.ts`](https://github.com/minesh16/woundcare-test/blob/main/src/assessment/client.ts) return `null` when the flag is off or the network fails, so a missing server never breaks the demo.
 
 <!-- docs-hook: last auto-checked against commit 72b0cc6 on 2026-09-23 -->

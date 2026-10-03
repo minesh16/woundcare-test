@@ -30,7 +30,7 @@ From [`app.json`](https://github.com/minesh16/woundcare-test/blob/main/app.json)
 | Gallery | Photo library usage string | via image-picker | File picker |
 | OpenCV | On-device `react-native-fast-opencv` | On-device | Server `api/analyze.ts` (`opencv-js-wasm`) |
 | Expo Go | **Not supported** (native OpenCV) | **Not supported** | N/A |
-| SAM 2 / VLM / report | Via `EXPO_PUBLIC_API_BASE` → Vercel | Same | Same-origin `/api/v1/*` |
+| Boundary / VLM / report | Via `EXPO_PUBLIC_API_BASE` → Vercel | Same | Same-origin `/api/v1/*` |
 | Depth | Not measured (2D photo, all platforms) | Same | Same |
 | Coin scale | Hough on-device | Hough on-device | Hough in `api/analyze.ts` |
 
@@ -46,6 +46,21 @@ Minimum OS versions are **not overridden** in `app.json`. They inherit Expo SDK 
 :::note
 `app.json` does not set `ios.deploymentTarget` or Android `minSdkVersion`. If those ever diverge from SDK 57 defaults, update this table from the native projects / `expo-build-properties`, not from memory.
 :::
+
+## Where the heavy compute runs
+
+Nothing in the list below runs on the device, which is the build spec's parity rule (§2.4): one implementation, identical on native and web.
+
+| Workload | Host | Reached via |
+|---|---|---|
+| Wound boundary — FUSegNet | **Modal** (GPU web endpoint) | `FUSEGNET_MODAL_URL` |
+| Wound boundary — SAM 3 | **fal.ai** `fal-ai/sam-3/image` | `FAL_KEY` |
+| Wound boundary — SAM 2 (fallback) | **Replicate** `meta/sam-2` | `REPLICATE_API_TOKEN` |
+| Caged VLM + report LLM | **Vercel AI Gateway** | `AI_GATEWAY_API_KEY` / OIDC |
+| HSI tissue %, periwound, coin scale | Vercel Functions (OpenCV.js) — or on-device OpenCV on native | `/api/analyze`, `/api/v1/assessments/tissue` |
+| Deterministic engine | Anywhere — pure TypeScript, no network | `src/decision/engine.ts` |
+
+Segmentation is deliberately **not** on the AI Gateway: the gateway serves text / image-gen / video / speech / embedding / reranking models, and none of these three is one of those.
 
 ## What works where in practice
 

@@ -1,6 +1,6 @@
 ---
 title: Assessment pipeline
-description: Capture → SAM 2 → mask-restricted HSI → caged VLM → reconcile + safety gate → evaluate → report → optional persist, as the code actually runs.
+description: Capture → boundary chain (FUSegNet / SAM 3 / SAM 2) → mask-restricted HSI → caged VLM → reconcile + safety gate → evaluate → report → optional persist, as the code actually runs.
 ---
 
 <!-- docs-hook:auto:start:status -->
@@ -22,9 +22,13 @@ flowchart TD
   C -->|coin Hough / area| D[pxPerCm calibration]
   C -->|none| E[Relative px² only]
   B --> F[HSV centroid]
-  F --> G[SAM 2 automatic masks\nReplicate meta/sam-2]
-  G --> H[_maskSelect: smallest mask\ncontaining the centroid]
-  H --> I[HSI tissue % INSIDE the mask]
+  F --> G[Boundary chain: FUSegNet on Modal →\nSAM 3 on fal.ai → SAM 2 on Replicate]
+  G --> G2{Mask plausible?\n0.05%–60% of frame}
+  G2 -->|no| G3[Reject, try the next provider\nattempt recorded]
+  G3 --> G
+  G2 -->|yes, 1 mask| I[HSI tissue % INSIDE the mask]
+  G2 -->|yes, several| H[_maskSelect: smallest mask\ncontaining the centroid]
+  H --> I
   D --> J[Periwound band: dilate 4 cm × pxPerCm]
   E --> K[periwound = null\nreason: no_scale]
   I --> L[Caged VLM\ngenerateObject + Zod + temp 0]
@@ -66,20 +70,26 @@ This pass now **forwards the wound mask** into `breakdownFromBuffer` (Phase 2 bu
 
 Coin scale is Hough-circle based ([`measureArea.ts`](https://github.com/minesh16/woundcare-test/blob/main/src/cv/measureArea.ts), Australian 20c diameter 28.52 mm). `pxPerCmFromMarkerSide()` is ready for ArUco; **detection is not wired** (dashed on the diagram).
 
-### 3. SAM 2 boundary
+### 3. Wound boundary
 
-Behind `assessmentV2`. Client: [`src/cv/segment.ts`](https://github.com/minesh16/woundcare-test/blob/main/src/cv/segment.ts) → [`api/segment.ts`](https://github.com/minesh16/woundcare-test/blob/main/api/segment.ts) → [`api/_sam2.ts`](https://github.com/minesh16/woundcare-test/blob/main/api/_sam2.ts).
+Behind `assessmentV2`. Client: [`src/cv/segment.ts`](https://github.com/minesh16/woundcare-test/blob/main/src/cv/segment.ts) → [`api/segment.ts`](https://github.com/minesh16/woundcare-test/blob/main/api/segment.ts) (or [`api/v1/assessments/segment.ts`](https://github.com/minesh16/woundcare-test/blob/main/api/v1/assessments/segment.ts)) → [`api/_segmentation.ts`](https://github.com/minesh16/woundcare-test/blob/main/api/_segmentation.ts).
 
-`meta/sam-2` is the **automatic** mask generator. There is no point/box prompt on the Replicate schema, so the HSV centroid is applied after the fact in [`api/_maskSelect.ts`](https://github.com/minesh16/woundcare-test/blob/main/api/_maskSelect.ts): among masks that contain the centroid, pick the smallest. Unconfigured or failed SAM 2 → HSV mask, confidence downgraded.
+Three backends, tried in order — full detail in [Legacy API → the provider chain](/docs/modules/api/#the-provider-chain):
 
-The orchestrator repeats this inside `_controller.ts` rather than HTTP-self-fetching.
+1. **FUSegNet** on Modal — a wound-specific CNN. One binary mask, no prompt, nothing to disambiguate. First because it is the only one of the three trained on wounds.
+2. **SAM 3** on fal.ai — the text concept prompt `"wound"` plus the HSV centroid as a pixel point. Returns every match with scores; the centroid picks between them.
+3. **SAM 2** on Replicate — the **automatic** mask generator, no prompt input at all, so the centroid is applied afterwards in [`api/_maskSelect.ts`](https://github.com/minesh16/woundcare-test/blob/main/api/_maskSelect.ts): among masks containing it, pick the smallest.
+
+A returned mask is measured before it is used: under 0.05% or over 60% of the frame and it is rejected and the next provider tried. Every attempt is recorded. All providers unconfigured or failing → HSV mask, confidence downgraded, step `degraded`.
+
+The client picks nothing — the chain is server-side, so native and web behave identically. The orchestrator calls the same facade inside `_controller.ts` rather than HTTP-self-fetching.
 
 ### 4. Mask-restricted tissue + periwound
 
 [`api/v1/assessments/tissue.ts`](https://github.com/minesh16/woundcare-test/blob/main/api/v1/assessments/tissue.ts) + [`api/_tissueOps.ts`](https://github.com/minesh16/woundcare-test/blob/main/api/_tissueOps.ts).
 
 - Pixels outside the mask are **skipped**, not binned as `other`.
-- No SAM mask → HSV combined mask and `maskSource: 'hsv'`.
+- No model mask → HSV combined mask and `maskSource: 'hsv'` (the values are `'model' | 'hsv'`; which backend drew it is the separate `maskProvider`, passed in and never inferred here).
 - Periwound: dilate by `PERIWOUND_BAND_CM = 4` × `pxPerCm`, subtract the wound, classify redness / maceration (`MACERATION_THRESHOLD_PCT = 15`). No scale → `null`, not a guess.
 
 ### 5. Caged VLM
@@ -117,10 +127,10 @@ From `_controller.ts` — a state machine, not an agent:
 
 | Step | If it fails |
 |---|---|
-| SAM 2 | HSV mask, step `degraded` |
+| Boundary | Next provider in the chain; all three down → HSV mask, step `degraded` |
 | VLM | Engine runs without `vlm`, step `degraded` |
 | Report LLM | Template, step `degraded` |
 | Supabase | Result still returned, audit to stdout |
 | **Evaluate** | The only non-optional step — the stream emits `event: error` |
 
-`maxDuration` for `run.ts` is **300 s in `vercel.json`**, not an `export const config` in the handler.
+`maxDuration` for `run.ts` is **300 s in `vercel.json`**, not an `export const config` in the handler. Both segment routes are **180 s** there: three GPU backends at a 60 s timeout each do not fit in 60.

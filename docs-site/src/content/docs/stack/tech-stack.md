@@ -67,7 +67,7 @@ There is **no** Electron / native desktop app. "Desktop" means the web build in 
 |---|---|---|
 | Frontier VLM + LLM | Vercel AI SDK v6 over **AI Gateway** | OIDC / gateway key, `getAvailableModels()`, no hardcoded provider keys |
 | VLM cage | `generateObject` + Zod, `temperature: 0` | Enums only; schema is the cage (temp 0 is best-effort on reasoning models) |
-| Segmentation | SAM 2 on **Replicate** (`meta/sam-2`) | Not on the Gateway (no GPU SAM there). Zero-shot, boundary only |
+| Segmentation | **FUSegNet** on Modal → **SAM 3** on fal.ai (`fal-ai/sam-3/image`) → **SAM 2** on Replicate (`meta/sam-2`), in that order | Not on the Gateway (it serves no GPU segmentation models). Pre-trained, boundary only. Order is the `SEGMENTATION_PROVIDERS` env var |
 | Report fallback | `reportTemplate.ts` | Pitch and patients survive a gateway outage |
 
 ## Dev tooling

@@ -10,7 +10,10 @@
       "maxDuration": 30
     },
     "api/segment.ts": {
-      "maxDuration": 60
+      "maxDuration": 180
+    },
+    "api/v1/assessments/segment.ts": {
+      "maxDuration": 180
     },
     "api/v1/assessments/run.ts": {
       "maxDuration": 300

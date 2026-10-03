@@ -1,7 +1,13 @@
 /** Docs-site version log. App capability lives on /operations/status/, not here. */
-export const docsVersion = '0.2.3';
+export const docsVersion = '0.3.0';
 
 export const changelog: { date: string; version: string; change: string }[] = [
+	{
+		date: '2026-10-03',
+		version: '0.3.0',
+		change:
+			'Segmentation is a provider chain, not one model: FUSegNet on Modal (wound-specific) → SAM 3 on fal.ai (concept prompt "wound") → SAM 2 on Replicate (unchanged, now the last fallback). A mask is measured for plausibility before it is trusted, every attempt is recorded in the audit log, and /api/v1/assessments/segment finally exists. 96 new offline assertions + a live probe.',
+	},
 	{
 		date: '2026-09-23',
 		version: '0.2.3',

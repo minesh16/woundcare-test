@@ -13,6 +13,17 @@ import { AppColors } from '@/constants/appTheme';
 import { TISSUE_CLASS_CLINICAL, TISSUE_CLASS_PLAIN } from '@/copy/plainLanguage';
 import { useSessionStore } from '@/store/sessionStore';
 
+/**
+ * Names for the boundary backends, shown only behind the "Technical detail"
+ * toggle. The default reading experience says "the outline we detected"; which
+ * network drew it is a debugging fact, not a clinical one.
+ */
+const BOUNDARY_SOURCE: Record<NonNullable<SegmentResult['provider']>, string> = {
+  fusegnet: 'wound-specific model',
+  sam3: 'general model, prompted for a wound',
+  sam2: 'general model, automatic',
+};
+
 export default function AnalyzeScreen() {
   const session = useSessionStore((state) => state.session);
   const setCvResult = useSessionStore((state) => state.setCvResult);
@@ -149,7 +160,7 @@ export default function AnalyzeScreen() {
                 ) : null}
                 {cv.maskSource ? (
                   <Text style={styles.detail}>
-                    Tissue measured inside the {cv.maskSource === 'sam2' ? 'SAM 2' : 'HSV'} mask
+                    Tissue measured inside the {cv.maskSource === 'model' ? 'detected' : 'on-device'} outline
                     {cv.maskAreaPx ? ` (${cv.maskAreaPx.toLocaleString()} px)` : ''}
                   </Text>
                 ) : null}
@@ -162,14 +173,26 @@ export default function AnalyzeScreen() {
                     : 'Fallback (demo)'}
                 </Text>
                 <Text style={styles.detail}>Confidence: {cv.confidence}</Text>
-                {segment?.source === 'sam2' ? (
+                {segment?.provider ? (
                   <Text style={styles.detail}>
-                    SAM 2 ({segment.model ?? 'meta/sam-2'}): {segment.masks.length} mask
-                    {segment.masks.length === 1 ? '' : 's'}
+                    Outline: {BOUNDARY_SOURCE[segment.provider]} ({segment.model ?? segment.provider}) —{' '}
+                    {segment.masks.length} region{segment.masks.length === 1 ? '' : 's'}
                     {segment.selection
-                      ? ` — wound mask selected (${segment.selection.areaPx.toLocaleString()} px)`
-                      : ' — no wound mask matched centroid'}{' '}
+                      ? `, wound region picked (${segment.selection.areaPx.toLocaleString()} px)`
+                      : ''}{' '}
                     ({segment.confidence})
+                  </Text>
+                ) : null}
+                {segment?.attempts?.some((attempt) => attempt.status !== 'ok') ? (
+                  // A boundary from the second or third fallback is a different
+                  // result from the same photo, so the fallback is shown rather
+                  // than hidden behind an identical-looking outline.
+                  <Text style={styles.detail}>
+                    Fell back from:{' '}
+                    {segment.attempts
+                      .filter((attempt) => attempt.status !== 'ok')
+                      .map((attempt) => `${attempt.provider} (${attempt.status})`)
+                      .join(', ')}
                   </Text>
                 ) : null}
                 {session.includeCoinReference ? (

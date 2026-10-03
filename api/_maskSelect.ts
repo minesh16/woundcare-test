@@ -1,23 +1,32 @@
 import { PNG } from 'pngjs';
 
-import type { ImagePoint } from './_sam2';
+import type { ImagePoint } from './_segmentationParse';
 
 /**
- * Wound-mask selection for the `meta/sam-2` automatic mask generator.
+ * Wound-mask selection and mask measurement, for the backends that return more
+ * than one mask.
  *
- * `meta/sam-2` returns every object it finds (`individual_masks`) with no
- * prompt input, so we can't ask it for "the wound" directly. Instead we reuse
- * the HSV wound centroid to SELECT the right mask: keep only masks whose pixel
- * at the centroid is set, then pick the SMALLEST by area — this discards the
- * whole-image / large-skin masks that also contain the centroid and keeps the
- * tight wound boundary. Conservative by default: any decode/fetch failure is
- * skipped, and if nothing matches we return null so the caller falls back.
+ * `meta/sam-2` (Replicate) returns every object it finds with no prompt input,
+ * and SAM 3 with the concept prompt "wound" returns every instance it matches,
+ * so neither can be asked for "the wound" and handed back exactly one mask.
+ * Instead we reuse the HSV wound centroid to SELECT the right one: keep only
+ * masks whose pixel at the centroid is set, then pick the SMALLEST by area —
+ * this discards the whole-image / large-skin masks that also contain the
+ * centroid and keeps the tight wound boundary. Conservative by default: any
+ * decode/fetch failure is skipped, and if nothing matches we return null so the
+ * caller falls back.
+ *
+ * FUSegNet needs none of this: it returns one wound mask because wounds are the
+ * only thing it can segment. `maskStats` is still used on its output, to check
+ * the mask is a plausible size before anything is measured inside it.
  */
 
 export type MaskSelection = {
   index: number;
   maskUrl: string;
   areaPx: number;
+  /** Pixels in the whole mask image — the denominator for the plausibility check. */
+  totalPx: number;
 };
 
 /** Max masks to fetch+decode per request (bounds latency/memory on busy scenes). */
@@ -40,15 +49,60 @@ function countSetPixels(data: Buffer, pixelCount: number): number {
   return area;
 }
 
+/**
+ * Decode a mask from an http(s) url or a data uri.
+ *
+ * Data uris are decoded directly rather than passed to `fetch`. `fetch` does
+ * accept them, but a mask arriving inline is the common case for the Modal
+ * endpoint (a Python handler returning base64 PNG), and routing it through the
+ * HTTP stack to get bytes we already hold adds a dependency on `data:` support
+ * for no benefit. `api/v1/assessments/tissue.ts` does the same.
+ */
 async function decodeMask(url: string): Promise<PNG | null> {
   try {
-    const response = await fetch(url);
-    if (!response.ok) return null;
-    const buffer = Buffer.from(await response.arrayBuffer());
+    let buffer: Buffer;
+    if (url.startsWith('data:')) {
+      buffer = Buffer.from(url.replace(/^data:[^;,]*;base64,/, ''), 'base64');
+    } else {
+      const response = await fetch(url);
+      if (!response.ok) return null;
+      buffer = Buffer.from(await response.arrayBuffer());
+    }
     return PNG.sync.read(buffer);
   } catch {
     return null;
   }
+}
+
+export type MaskStats = {
+  /** Pixels inside the mask. */
+  areaPx: number;
+  /** Pixels in the whole mask image — the denominator for a plausibility check. */
+  totalPx: number;
+  width: number;
+  height: number;
+};
+
+/**
+ * Decode a single mask and measure it. Used on the single-mask backends
+ * (FUSegNet, or SAM 3 when it matched exactly one instance) where there is
+ * nothing to select between but the size still has to be sanity-checked before
+ * the tissue classifier treats everything inside it as wound bed.
+ *
+ * Returns null when the mask cannot be fetched or decoded — the caller then
+ * degrades to the next provider rather than measuring inside a mask it could
+ * not read.
+ */
+export async function maskStats(url: string): Promise<MaskStats | null> {
+  const png = await decodeMask(url);
+  if (!png) return null;
+  const totalPx = png.width * png.height;
+  return {
+    areaPx: countSetPixels(png.data, totalPx),
+    totalPx,
+    width: png.width,
+    height: png.height,
+  };
 }
 
 /**
@@ -77,12 +131,13 @@ export async function selectWoundMask(
 
     if (!isSet(png.data, centroidIdx)) continue;
 
-    const areaPx = countSetPixels(png.data, png.width * png.height);
+    const totalPx = png.width * png.height;
+    const areaPx = countSetPixels(png.data, totalPx);
     if (areaPx === 0) continue;
 
     // Smallest containing mask wins (tight wound vs whole-image blob).
     if (!best || areaPx < best.areaPx) {
-      best = { index, maskUrl: url, areaPx };
+      best = { index, maskUrl: url, areaPx, totalPx };
     }
   }
 

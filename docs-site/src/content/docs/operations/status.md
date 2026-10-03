@@ -38,11 +38,15 @@ Fetched from production during this docs build:
 |---|---|---|
 | Deterministic engine | Always | Never depends on anything below |
 | AI Gateway (VLM + report) | Live (`capabilities.gateway: true`) | VLM and report LLM degrade to unavailable / template |
-| SAM 2 | Live (`REPLICATE_API_TOKEN` present) | Falls back to HSV mask |
+| Boundary segmentation | Chain of three. Check `segmentation.active` in the health response — it names the provider that will actually answer | Falls back to the HSV mask |
 | Supabase persistence + audit | Live (`capabilities.store: true`) | Assessments still compute; nothing is persisted; `audit_log` rows go to **stdout** |
 <!-- docs-hook:auto:end:capabilities -->
 
 `isStoreConfigured()` requires **both** URL and service-role key, and both are now present.
+
+:::caution[The snapshot above predates the segmentation chain]
+`health` now also returns a `segmentation` block — `order`, per-provider `configured`, and `active`. On the snapshot above only `REPLICATE_API_TOKEN` was set, so `active` would be `sam2`: the **last** fallback, and the weakest boundary of the three. `FUSEGNET_MODAL_URL` and `FAL_KEY` still need adding to the Vercel project (Production **and** Preview, server-side, never `EXPO_PUBLIC_`). Vercel binds env vars at deploy time, so adding them does nothing until the next deploy.
+:::
 
 ### How the store was dark until 23 Sep 2026
 
@@ -62,7 +66,7 @@ Also verified against prod on 21 Sep 2026 (from `HANDOFF.md`, not re-hit as a fu
 | | Local (`.env.local`) | Production Vercel |
 |---|---|---|
 | Gateway | Works (`check:gateway`, `smoke:live` 15/15) | Works, **free tier** |
-| SAM 2 | If `REPLICATE_API_TOKEN` set | Token present |
+| Boundary segmentation | Nothing set in `.env.local` — unexercised locally. `npm run check:segmentation` probes it | `REPLICATE_API_TOKEN` only; FUSegNet + SAM 3 not yet set |
 | Supabase schema | Applied (`db:migrate`) | Applied, and functions reach it since 23 Sep 2026 |
 | Audit | Real Postgres rows (smoke verified) | Real Postgres rows (stdout only before 23 Sep 2026) |
 
@@ -86,7 +90,7 @@ Guard: `npm run test:imports`. Do not ignore a failure.
 
 ### 3. `maxDuration` lives in `vercel.json`
 
-For plain Vercel Node functions (this repo is not Next.js App Router), `export const config` in the handler is **ignored**. Timeouts are in the repo-root [`vercel.json`](https://github.com/minesh16/woundcare-test/blob/main/vercel.json) (`run.ts` is 300 s; VLM / report / segment 60 s). Two sources of truth is how one of them ends up silently unused.
+For plain Vercel Node functions (this repo is not Next.js App Router), `export const config` in the handler is **ignored**. Timeouts are in the repo-root [`vercel.json`](https://github.com/minesh16/woundcare-test/blob/main/vercel.json) (`run.ts` 300 s; both segment routes 180 s, because three GPU backends at 60 s each do not fit in 60; VLM / report 60 s). Two sources of truth is how one of them ends up silently unused.
 
 ### 4. The gate only runs if the file is called `middleware.ts`
 
@@ -107,10 +111,12 @@ Server-side, Production **and** Preview, never `EXPO_PUBLIC_` for secrets:
 
 - `SUPABASE_URL` — present in prod. Check the **spelling** with `vercel env ls`, not just the presence: it sat there as `SUABASE_URL` for two days
 - `SUPABASE_SERVICE_ROLE_KEY` — present in prod
-- `REPLICATE_API_TOKEN`
+- `FUSEGNET_MODAL_URL` — the deployed Modal web endpoint; with `MODAL_KEY` + `MODAL_SECRET` (proxy auth pair) or `FUSEGNET_AUTH_TOKEN` (bearer). Unset → provider skipped
+- `FAL_KEY` — SAM 3 on fal.ai. Unset → provider skipped
+- `REPLICATE_API_TOKEN` — SAM 2, the last fallback
 - `AI_GATEWAY_API_KEY` and/or Vercel OIDC (`VERCEL_OIDC_TOKEN` was false on the snapshot; `AI_GATEWAY_API_KEY` was true)
 - `DOCS_PASSPHRASE` — gates `/docs` only (HttpOnly cookie); set on Production and Preview. Missing → gate page with `reason=unconfigured`
-- Optional: `MENDWISE_VLM_MODEL`, `MENDWISE_LLM_MODEL`, `SAM2_REPLICATE_VERSION`, `SAM2_POINTS_PER_SIDE`, `SAM2_MAX_MASKS`
+- Optional: `MENDWISE_VLM_MODEL`, `MENDWISE_LLM_MODEL`, `SEGMENTATION_PROVIDERS` (order, default `fusegnet,sam3,sam2`), `FUSEGNET_IMAGE_FIELD`, `FUSEGNET_MASK_FIELD`, `FUSEGNET_TIMEOUT_MS`, `FUSEGNET_MODEL_LABEL`, `SAM3_FAL_MODEL`, `SAM3_PROMPT`, `SAM3_MAX_MASKS`, `SAM3_SYNC_MODE`, `SAM3_TIMEOUT_MS`, `SAM2_REPLICATE_VERSION`, `SAM2_POINTS_PER_SIDE`, `SAM2_MAX_MASKS`
 
 Client (inlinable): `EXPO_PUBLIC_ASSESSMENT_V2`, `EXPO_PUBLIC_API_BASE`, `EXPO_PUBLIC_ANALYZE_URL`, `EXPO_PUBLIC_SEGMENT_URL`.
 

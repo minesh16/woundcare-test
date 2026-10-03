@@ -8,7 +8,7 @@ Status here follows [`docs/HANDOFF.md`](https://github.com/minesh16/woundcare-te
 Deadlines in that handoff: Assessment 3 due **25 Sep 2026**; pitch **13 Oct 2026**.
 
 :::note
-Items under **Next** are not shipped. Do not document them as live capability. Golden eval (`scripts/eval.mts`), prod `SUPABASE_URL`, SAM 2 latency tune, `wound_timeline` UI, ArUco, and ethics clearance are backlog.
+Items under **Next** are not shipped. Do not document them as live capability. Golden eval (`scripts/eval.mts`), a live run of the FUSegNet / SAM 3 endpoints, segmentation latency tuning, `wound_timeline` UI, ArUco, and ethics clearance are backlog.
 :::
 
 ## Done
@@ -21,7 +21,7 @@ Items under **Next** are not shipped. Do not document them as live capability. G
 
 ### Phase 1 — segmentation + measurement
 
-- SAM 2 via Replicate (`api/segment.ts`, `_sam2.ts`, `_maskSelect.ts`)
+- SAM 2 via Replicate (`api/segment.ts`, `_sam2.ts`, `_maskSelect.ts`) — since superseded as the *first* provider by FUSegNet + SAM 3
 - Marker / `pxPerCm` through both pipelines
 - HSI tissue % with an `epithelial` class
 - Real perfusion / ABPI / infection questionnaire inputs
@@ -29,7 +29,7 @@ Items under **Next** are not shipped. Do not document them as live capability. G
 
 ### Phase 2 — caged VLM + full pipeline + Supabase + plain language
 
-- Tissue **inside the SAM 2 mask** (whole-frame was a real bug)
+- Tissue **inside the model mask** (whole-frame was a real bug)
 - Periwound band (`_tissueOps.ts`)
 - AI Gateway adapter, caged VLM, evaluate, report (template-first)
 - Reconciliation on exudate and infection, plus the **safety gate** (`pathwayWithheld`)
@@ -44,7 +44,7 @@ From HANDOFF **NEXT**, in that order of emphasis:
 <!-- docs-hook:auto:start:next -->
 1. **Golden eval set** (~20–50 clinician-labelled images, Fitzpatrick-balanced) + `scripts/eval.mts` reporting pathway accuracy, referral sensitivity, and N/A rate. Highest-value remaining work. *Not started* (`eval.mts` is not in `scripts/`).
 2. **Production Supabase** — set `SUPABASE_URL` (and confirm the service-role key) on the Vercel project, Production + Preview, then **redeploy**. Local migration is already applied.
-3. **Exercise the gateway end to end in prod conditions; tune** `SAM2_POINTS_PER_SIDE` / `SAM2_MAX_MASKS` for latency.
+3. **Run `npm run check:segmentation` against the live Modal + fal endpoints** — the FUSegNet response contract is assumed, not verified. Then exercise the gateway end to end in prod conditions and measure boundary latency per provider.
 4. **`wound_timeline` UI** + the `<40% area reduction in 4 weeks` trigger computed from **real history** (today it is a questionnaire flag). Table already exists.
 5. **ArUco detection** — `pxPerCmFromMarkerSide` is ready; wire detection + a printable card. A point-promptable segmentation model would let `_maskSelect.ts` be deleted.
 6. **La Trobe ethics clearance** before any real patient imagery.

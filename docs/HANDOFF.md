@@ -10,10 +10,10 @@
 ## The cage (non-negotiable invariants)
 
 1. **Determinism is authoritative.** The CWCS 26-pathway table + Mölnlycke triggers (`src/decision/engine.ts`) make the dressing/referral decision. AI only produces *inputs* and *narrates* outputs — it never emits a pathway.
-2. **AI is caged.** SAM 2 = boundary; OpenCV HSI = tissue %; frontier VLM = strict-JSON enums only (`generateObject` + Zod, `temperature: 0`); frontier LLM = report from already-decided facts.
+2. **AI is caged.** Segmentation = boundary (FUSegNet on Modal → SAM 3 on fal.ai → SAM 2 on Replicate); OpenCV HSI = tissue %; frontier VLM = strict-JSON enums only (`generateObject` + Zod, `temperature: 0`); frontier LLM = report from already-decided facts.
 3. **Additive, never destructive.** New work sits behind an `assessmentV2` flag + `/api/v1/assessments/*`. The existing HSV flow stays as capture quality-gate + offline fallback + SAM prompt-seed.
 4. **Conservative by default.** No marker / low confidence / conflicting signals → "incomplete → retake or escalate", never a confident dressing call.
-5. **No model fine-tuning.** Zero-shot SAM 2 + frontier VLM/LLM only.
+5. **No model fine-tuning.** Pre-trained segmentation (zero-shot SAM, published FUSegNet weights) + frontier VLM/LLM. We train nothing.
 
 ---
 
@@ -44,6 +44,10 @@ SAM 2 boundary via Replicate (`api/segment.ts` + `api/_sam2.ts` + `api/_maskSele
 calibration (`pxPerCm` through both pipelines), HSI tissue-% with an `epithelial` class, real
 perfusion/ABPI/infection questionnaire inputs, and photo upload. Details in git history; the
 carry-overs that mattered are closed below.
+
+**Superseded by the FUSegNet + SAM 3 section below.** SAM 2 on Replicate is now the
+*third* provider in a chain, not the only one. Everything in this section still describes
+how it behaves when it is reached.
 
 **Replicate call shape (still true, worth keeping):** `meta/sam-2` is a *versioned* model, so
 `_sam2.ts` resolves the latest version via `GET /v1/models/{model}` (cached) and creates the
@@ -146,7 +150,7 @@ client bundle). With Supabase unset everything still works and the audit record 
 |---|---|
 | Deterministic engine | ✅ always — never depends on anything below |
 | AI Gateway (VLM + report) | ✅ `openai/gpt-5` / `gemini-2.5-flash` on the free tier |
-| SAM 2 segmentation | ✅ `REPLICATE_API_TOKEN` present |
+| Segmentation | chain of three — see `segmentation.active` in the health response. SAM 2 was the only one until the FUSegNet + SAM 3 work below; `FUSEGNET_MODAL_URL` and `FAL_KEY` still need setting on the Vercel project |
 | Supabase persistence + audit | ✅ live since 23 Sep 2026 — rows are being written again |
 | Docs site at `/docs` | ✅ live, passphrase-gated (`DOCS_PASSPHRASE`) |
 
@@ -199,16 +203,18 @@ shows `reason=unconfigured` and fails closed. The workspace is trusted in Cursor
 so the docs-check hook loads.
 
 ### Verify
-`npm test` runs all four offline suites:
+`npm test` runs all five offline suites:
 - `npm run test:rules` — **97/97** (was 66; the 66 are asserted unchanged when no VLM is supplied)
 - `npm run test:cage` — 15/15 schema + report-cage assertions, no network
 - `npm run test:copy` — terminology guard over `src/app`, `src/components`, `src/copy`
 - `npm run test:imports` — catches the alias-in-a-function bug above
+- `npm run test:segmentation` — **96/96** segmentation wire formats (see the section below)
 
 `npm run typecheck` — only the pre-existing `app-tabs.web.tsx` `/explore` error.
 
 Live checks (need `.env.local`, gitignored — see `supabase/README.md`):
 - `npm run check:gateway` — probes real model access per role
+- `npm run check:segmentation` — probes the FUSegNet and SAM 3 endpoints with a real call
 - `npm run smoke:live` — real VLM + report call, engine, cage check, Supabase round-trip
 - `npm run db:migrate` — idempotent; applies the schema and prints the resulting grants
 
@@ -236,6 +242,91 @@ Live checks (need `.env.local`, gitignored — see `supabase/README.md`):
 
 ---
 
+## DONE — Segmentation backends: FUSegNet (Modal) + SAM 3 (fal.ai)
+
+The boundary step is no longer one model on one host. `api/_segmentation.ts` is a facade
+over three providers, tried in order (`SEGMENTATION_PROVIDERS`, default below):
+
+| Order | Provider | Host | Prompt | Returns |
+|---|---|---|---|---|
+| 1 | `fusegnet` | Modal (`FUSEGNET_MODAL_URL`) | none — wound-only model | one binary wound mask |
+| 2 | `sam3` | fal.ai `fal-ai/sam-3/image` | text concept `"wound"` + pixel point | every match, with scores |
+| 3 | `sam2` | Replicate `meta/sam-2` | none — automatic generator | everything in the frame |
+
+**Why FUSegNet leads.** It is the only one of the three trained on wounds, so there is
+nothing to disambiguate: the "model segmented the foot, not the ulcer" failure that
+`_maskSelect.ts` exists to work around cannot happen. SAM 3 is the generalist second
+choice and does collapse the spec's optional V2 plan (§3: "Grounding DINO text-prompt
+'wound' → box → SAM 2") into a single call, because SAM 3 takes the noun phrase directly.
+SAM 2 stays, unchanged and working, as the third fallback — additive, never destructive.
+
+### Files
+- `api/_segmentationParse.ts` — **import-free**, like `engine.ts`, so `test:segmentation`
+  can load it under `node --experimental-strip-types`. Holds the provider order parsing,
+  the JPEG/PNG header reader, the request builders, the response parsers and the mask
+  plausibility bounds. The HTTP adapters import *from* it; nothing imports *into* it.
+- `api/_fusegnet.ts` — Modal adapter. Proxy auth is `Modal-Key`/`Modal-Secret` when both
+  are set, else `Authorization: Bearer <FUSEGNET_AUTH_TOKEN>`, else unauthenticated.
+- `api/_sam3.ts` — fal adapter. Auth is `Authorization: Key <FAL_KEY>` (**not** `Bearer`).
+- `api/_segmentation.ts` — the chain: try, measure, reject, fall through, record attempts.
+- `api/v1/assessments/segment.ts` — the granular step the spec's §7 names and the repo
+  was missing. Delegates to the same facade as `run`.
+- `api/_maskSelect.ts` — gained `maskStats()` and `totalPx` on a selection; still selects
+  by centroid for the two providers that return more than one mask.
+
+### Behaviour that is new, not just rewired
+- **A mask is measured before it is trusted.** `maskPlausibility` rejects a mask under
+  0.05% or over 60% of the frame and moves to the next provider. A mask of the whole leg
+  is not a boundary error downstream — it silently rescales every tissue percentage, and
+  nothing after it can tell.
+- **Every attempt is recorded** (`attempts: [{provider, status, ms, reason}]`) and lands in
+  the step summary, the API response and `audit_log.models.segmentationProvider`. A
+  boundary from the third fallback is a different result from the same photo; it should not
+  look identical.
+- **`TissueSummary.maskSource` is now `'model' | 'hsv'`**, not `'sam2' | 'hsv'`, with the
+  provider in a separate `maskProvider` field. The tissue step is handed a mask, not a
+  provider — it must not claim to know which model drew it.
+- **SAM 3's point prompt is in pixels.** Ours are fractional, so `imageSize()` reads the
+  real dimensions from the JPEG/PNG header (no full decode) and the point is **omitted**
+  rather than guessed when the header is unreadable. A fraction sent as a pixel coordinate
+  lands in the top-left corner of the photo and still returns a confident mask.
+- **`apply_mask: false` on the fal request.** With it true, fal composites the mask onto the
+  photograph, and the HSI classifier would measure a composited photo as tissue.
+- `/api/segment` and `/api/v1/assessments/segment` have `maxDuration: 180` — three GPU
+  backends at 60 s each do not fit in 60.
+
+### Verify
+- `npm run test:segmentation` — **96/96**, offline. Covers provider-order parsing, the
+  JPEG/PNG header reader, pixel conversion and clamping, both request shapes, both
+  response shapes (including fal `Image` unwrapping and `metadata` scores), the Modal auth
+  precedence, and every plausibility bound.
+- `npm run check:segmentation` — **live** probe. Sends the request the adapters send (the
+  builders are shared, so the probe cannot verify a lookalike) and prints the endpoint's
+  actual response keys when nothing parses. `--image=path/to/wound.jpg` to probe with a
+  real photo; the synthetic image only tests the wire format.
+- `GET /api/v1/assessments/health` now reports `segmentation.order`, per-provider
+  `configured`, and `segmentation.active` — the first provider that will actually answer.
+
+### Known issues / carry-overs
+- ⚠️ **The Modal response contract is assumed, not verified.** `parseFusegnetResponse` tries
+  `mask`, `mask_png`, `mask_base64`, `mask_png_base64`, `mask_url`, `masks`, `wound_mask`,
+  `segmentation`, `output`, accepts an http url / data uri / bare base64, and reads a score
+  from `confidence`, `score`, `mean_probability`, `mean_prob`, `probability` or `dice`. If
+  the deployed handler uses something else, `FUSEGNET_MASK_FIELD` and
+  `FUSEGNET_IMAGE_FIELD` adapt it with no code change. **Run `npm run check:segmentation`
+  once against the real endpoint** — that is what closes this item.
+- ⚠️ **No live run yet.** `.env.local` has no `FUSEGNET_MODAL_URL`, `FAL_KEY` or
+  `REPLICATE_API_TOKEN`, so nothing here has been exercised against a GPU. The offline
+  suite proves the wire format; it cannot prove the endpoints agree with it.
+- **FUSegNet is a foot-ulcer model.** Its training distribution is DFUs. On a venous leg
+  ulcer or a pressure injury, SAM 3's concept prompt may well be the better boundary —
+  which is an argument for the chain order being an env var, and for the golden eval set
+  being the thing that settles it rather than this paragraph.
+- The two new providers' latency is unmeasured. A cold Modal container loading
+  EfficientNet weights is the slow case; `FUSEGNET_TIMEOUT_MS` defaults to 60 s.
+
+---
+
 ## NEXT — remaining Phase 3 + backlog
 
 1. **Golden eval set** (~20–50 clinician-labelled images, Fitzpatrick-balanced) + `scripts/eval.mts`
@@ -243,10 +334,12 @@ Live checks (need `.env.local`, gitignored — see `supabase/README.md`):
 2. Apply the Supabase migration and set the two server-side env vars.
 3. Exercise the gateway end to end; tune `SAM2_POINTS_PER_SIDE` / `SAM2_MAX_MASKS` for latency.
 4. `wound_timeline` UI + the "<40 % area reduction in 4 weeks" trigger from real history.
-5. ArUco detection (`pxPerCmFromMarkerSide` is ready); a point-promptable segmentation model would
-   let `_maskSelect.ts` be deleted entirely.
+5. ArUco detection (`pxPerCmFromMarkerSide` is ready). `_maskSelect.ts` is no longer
+   load-bearing — FUSegNet returns one wound mask and SAM 3 usually returns one match — but
+   it is still the disambiguator when SAM 3 finds several, so it stays until the eval set
+   shows the chain never needs it.
 6. La Trobe ethics clearance before any real patient imagery.
 
 ## Paste-into-Cursor prompt (Composer / agent)
 
-> You are continuing the MendWise wound-assessment app. Read `docs/MendWise_Assessment_Build_Spec.md`, `docs/HANDOFF.md` and `docs/PHASE2_PLAN.md` first, and obey the cage invariants (determinism authoritative; AI caged; additive behind `assessmentV2`; no fine-tuning). Phases 0–2 are DONE and green — do not regress them: `npm test` must stay at 97 + 15 + 4 passing, and `npm run typecheck` must not add errors beyond the pre-existing `app-tabs.web.tsx` one. Pick up from the "NEXT" section of `HANDOFF.md`. Before writing Expo code, check the versioned docs at https://docs.expo.dev/versions/v57.0.0/ (see `AGENTS.md`). Show me a short plan before large edits.
+> You are continuing the MendWise wound-assessment app. Read `docs/MendWise_Assessment_Build_Spec.md`, `docs/HANDOFF.md` and `docs/PHASE2_PLAN.md` first, and obey the cage invariants (determinism authoritative; AI caged; additive behind `assessmentV2`; no fine-tuning). Phases 0–2 and the FUSegNet/SAM 3 segmentation chain are DONE and green — do not regress them: `npm test` must stay at 97 + 15 + 4 + 2 + 96 passing, and `npm run typecheck` must not add errors beyond the pre-existing `app-tabs.web.tsx` one. Pick up from the "NEXT" section of `HANDOFF.md`. Before writing Expo code, check the versioned docs at https://docs.expo.dev/versions/v57.0.0/ (see `AGENTS.md`). Show me a short plan before large edits.

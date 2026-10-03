@@ -24,11 +24,26 @@ export type StepOutcome = {
   summary: string;
 };
 
+/**
+ * Which backend drew the wound boundary.
+ *
+ * Mirrors `SegmentationProvider` in `api/_segmentationParse.ts`. The two are
+ * deliberately separate declarations: this file is shared with the Expo client,
+ * and the api/ module must stay import-free so it runs under Node's type
+ * stripping. They are types only, so there is no runtime coupling to break —
+ * but they must be changed together.
+ */
+export type SegmentationProviderName = 'fusegnet' | 'sam3' | 'sam2';
+
+/** How the boundary was obtained — see `PromptMode` in `api/_segmentation.ts`. */
+export type SegmentPromptMode = 'wound-specific' | 'concept' | 'automatic';
+
 export type SegmentSummary = {
-  source: 'sam2' | 'unavailable';
+  source: SegmentationProviderName | 'unavailable';
   maskUrl: string | null;
   confidence: 'high' | 'medium' | 'low';
   model?: string;
+  promptMode?: SegmentPromptMode;
 };
 
 export type TissueSummary = {
@@ -37,7 +52,14 @@ export type TissueSummary = {
   necrotic: number;
   epithelial: number;
   other: number;
-  maskSource: 'sam2' | 'hsv';
+  /**
+   * `model` = a segmentation model's mask; `hsv` = the on-device colour-threshold
+   * mask. Which model is a separate field: the tissue step is handed a mask, not
+   * a provider, and recording a provider it was not told would be a guess.
+   */
+  maskSource: 'model' | 'hsv';
+  /** Which backend produced that mask, when the caller said. */
+  maskProvider?: SegmentationProviderName | null;
   maskAreaPx: number;
   periwound: { rednessPct: number; macerationPct: number; maceration: boolean } | null;
 };

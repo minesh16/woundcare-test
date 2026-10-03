@@ -1,6 +1,12 @@
 /**
  * SAM 2 adapter → Replicate GPU endpoint (server-side only).
  *
+ * POSITION IN THE CHAIN: this is now the LAST-RESORT segmentation provider.
+ * `_segmentation.ts` tries FUSegNet (Modal, wound-specific) then SAM 3 (fal.ai,
+ * concept prompt "wound") first, because both know what they are looking for and
+ * this one does not — see the capability note below. It is kept, unchanged and
+ * working, as the third fallback: additive, never destructive (build spec §2.3).
+ *
  * The cage (docs/HANDOFF.md / build spec §3): SAM 2 is zero-shot boundary
  * detection only — it produces a mask, never a dressing pathway. It is NOT on
  * the Vercel AI Gateway (the gateway only serves text/image/video/speech/
@@ -12,9 +18,9 @@
  * prompt input (verified: input = image, points_per_side, pred_iou_thresh,
  * stability_score_thresh, use_m2m; output = combined_mask, individual_masks).
  * So the HSV centroid can't be passed as a prompt — it is instead used to
- * SELECT the wound mask from `individual_masks` (see mask selection below /
- * segment.ts). To do true prompted segmentation, swap in a point-promptable
- * SAM 2 model via SAM2_REPLICATE_MODEL.
+ * SELECT the wound mask from `individual_masks` (see `_maskSelect.ts`). This is
+ * the limitation FUSegNet and SAM 3 remove, and the reason they are preferred:
+ * one is wound-only, the other takes the noun phrase "wound" directly.
  *
  * Configuration (env):
  *  - REPLICATE_API_TOKEN    (required; provisioned by the Vercel↔Replicate
@@ -30,7 +36,8 @@
  * is 404 for versioned models). We resolve the latest version once and cache it.
  */
 
-export type ImagePoint = { xPct: number; yPct: number };
+/** Re-exported for the callers that still import it from here. */
+export type { ImagePoint } from './_segmentationParse';
 
 export type Sam2Result = {
   /** Union of all detected masks (PNG uri) — quick to display, but not wound-specific. */

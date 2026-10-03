@@ -45,7 +45,14 @@ export type BodyZone =
   | 'toes_left'
   | 'toes_right';
 
-/** Wound-bed centroid in fractional image coordinates (0–1), used to seed SAM 2. */
+/**
+ * Wound-bed centroid in fractional image coordinates (0–1).
+ *
+ * Fractional, not pixels, so it survives every resize between capture and the
+ * segmentation backend. It seeds SAM 3's pixel point prompt (converted there,
+ * from the image's real dimensions) and selects the wound mask from the backends
+ * that return more than one. FUSegNet needs it for neither.
+ */
 export type ImagePoint = { xPct: number; yPct: number };
 
 /**
@@ -81,10 +88,10 @@ export type CvResult = {
   overlayBase64: string | null;
   analysisEngine: 'opencv' | 'fallback';
   coinDetected: boolean;
-  /** HSV wound centroid (SAM 2 point-prompt seed); null when no wound contour found. */
+  /** HSV wound centroid (segmentation prompt/selection seed); null when no wound contour found. */
   hsvCentroid: ImagePoint | null;
-  /** Which mask the tissue percentages were measured inside. */
-  maskSource?: 'hsv' | 'sam2';
+  /** Which mask the tissue percentages were measured inside — a model's, or the on-device HSV one. */
+  maskSource?: 'hsv' | 'model';
   /** Pixel count of that mask (the denominator behind the tissue percentages). */
   maskAreaPx?: number;
   /** Periwound band metrics; null when no scale was available to size the band. */

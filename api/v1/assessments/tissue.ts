@@ -18,9 +18,14 @@ import { Cv, CvMat, loadCv } from '../../cv';
  * (they are skipped, not binned as "other", which would still distort the
  * percentages).
  *
- * With no SAM 2 mask supplied we fall back to the HSV wound mask and say so via
+ * With no model mask supplied we fall back to the HSV wound mask and say so via
  * `maskSource`, because a weaker boundary should be visible downstream rather
  * than silently assumed to be as good.
+ *
+ * This step is boundary-agnostic on purpose: it is handed a mask uri by
+ * `_segmentation.ts` and does not care which of FUSegNet / SAM 3 / SAM 2 drew it.
+ * `maskProvider` is passed through for the record only — it is never inferred
+ * here, because this module has no way to know.
  */
 
 const MAX_EDGE = 1024;
@@ -42,7 +47,7 @@ function inRangeScalar(cv: Cv, src: CvMat, lo: Hsv, hi: Hsv, dst: CvMat): void {
   }
 }
 
-/** Fetch or decode a SAM 2 mask PNG (url or data-url) into raw RGBA. */
+/** Fetch or decode a mask PNG (url or data-url) into raw RGBA. */
 async function loadMaskPng(source: string): Promise<PNG | null> {
   try {
     let buffer: Buffer;
@@ -68,7 +73,7 @@ function maskToBuffer(png: PNG, width: number, height: number): Uint8Array {
     for (let x = 0; x < width; x += 1) {
       const sx = Math.min(png.width - 1, Math.floor((x / width) * png.width));
       const idx = (sy * png.width + sx) * 4;
-      // SAM 2 masks are white-on-black; alpha-zero pixels are outside too.
+      // Masks are white-on-black; alpha-zero pixels are outside too.
       const on = png.data[idx + 3] !== 0 && png.data[idx] > 127;
       out[y * width + x] = on ? 255 : 0;
     }
@@ -76,10 +81,17 @@ function maskToBuffer(png: PNG, width: number, height: number): Uint8Array {
   return out;
 }
 
-export type TissueRequest = { base64: string; mask?: string | null; pxPerCm?: number | null };
+export type TissueRequest = {
+  base64: string;
+  mask?: string | null;
+  pxPerCm?: number | null;
+  /** Which backend drew `mask`. Recorded, never inferred. */
+  maskProvider?: TissueSummary['maskProvider'];
+};
 export type TissueResponse = {
   tissue: TissueSummary | null;
   maskSource: TissueSummary['maskSource'];
+  maskProvider: TissueSummary['maskProvider'];
   maskAreaPx: number;
   periwound: TissueSummary['periwound'];
   reason?: string;
@@ -94,6 +106,14 @@ export type TissueResponse = {
 export async function analyzeTissue(body: TissueRequest): Promise<TissueResponse> {
   const base64 = stripDataUri(String(body.base64 ?? ''));
   const pxPerCm = typeof body.pxPerCm === 'number' ? body.pxPerCm : null;
+  // Only meaningful alongside a supplied mask; cleared below if none decodes.
+  // Validated against the known set rather than taken on trust: this is a
+  // caller-supplied string that ends up in the audit log as the record of which
+  // model drew the boundary, and an unrecognised label there is worse than none.
+  let maskProvider: TissueSummary['maskProvider'] =
+    body.maskProvider === 'fusegnet' || body.maskProvider === 'sam3' || body.maskProvider === 'sam2'
+      ? body.maskProvider
+      : null;
 
   if (!base64) {
     throw new Error('Missing base64 image.');
@@ -122,7 +142,7 @@ export async function analyzeTissue(body: TissueRequest): Promise<TissueResponse
     const blurred = track(new cv.Mat());
     cv.GaussianBlur(resized, blurred, new cv.Size(5, 5), 0);
 
-    // Build the wound mask: SAM 2 when supplied, HSV otherwise.
+    // Build the wound mask: the model's when supplied, HSV otherwise.
     let maskSource: TissueSummary['maskSource'] = 'hsv';
     let maskMat = track(new cv.Mat(height, width, cv.CV_8UC1, new cv.Scalar(0, 0, 0, 0)));
 
@@ -130,8 +150,11 @@ export async function analyzeTissue(body: TissueRequest): Promise<TissueResponse
     if (suppliedMask) {
       const buffer = maskToBuffer(suppliedMask, width, height);
       maskMat.data.set(buffer);
-      maskSource = 'sam2';
+      maskSource = 'model';
     } else {
+      // The supplied mask did not decode (or there was none), so the provider
+      // label would be a lie about which boundary was measured.
+      maskProvider = null;
       const hsv = track(new cv.Mat());
       cv.cvtColor(blurred, hsv, cv.COLOR_RGB2HSV);
       const wound = track(new cv.Mat());
@@ -152,6 +175,7 @@ export async function analyzeTissue(body: TissueRequest): Promise<TissueResponse
       return {
         tissue: null,
         maskSource,
+        maskProvider,
         maskAreaPx: 0,
         periwound: null,
         reason: 'No wound area found in the image.',
@@ -169,6 +193,7 @@ export async function analyzeTissue(body: TissueRequest): Promise<TissueResponse
       epithelial: pct.epithelialPercent,
       other: pct.otherPercent,
       maskSource,
+      maskProvider,
       maskAreaPx,
       periwound: periwound
         ? { rednessPct: periwound.rednessPct, macerationPct: periwound.macerationPct, maceration: periwound.maceration }
@@ -178,6 +203,7 @@ export async function analyzeTissue(body: TissueRequest): Promise<TissueResponse
     return {
       tissue: summary,
       maskSource,
+      maskProvider,
       maskAreaPx,
       periwound: summary.periwound,
       // Without a scale, 4 cm cannot be expressed in pixels — we say so rather

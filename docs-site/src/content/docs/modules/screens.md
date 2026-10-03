@@ -9,7 +9,7 @@ Path: [`src/app/`](https://github.com/minesh16/woundcare-test/tree/main/src/app)
 | File | Route | What it does |
 |---|---|---|
 | `_layout.tsx` | — | Stack titles |
-| `analyze.tsx` | `/analyze` | HSV analysis, optional SAM overlay, tissue bars |
+| `analyze.tsx` | `/analyze` | HSV analysis, optional model-mask overlay, tissue bars |
 | `capture.tsx` | `/capture` | Camera + gallery, 20c coin toggle |
 | `compare.tsx` | `/compare` | Ungrounded baseline vs SSE `run` (V2 only) |
 | `index.tsx` | `/` | Welcome, disclaimer, consent checkbox, Start |

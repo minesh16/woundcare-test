@@ -1,6 +1,6 @@
 ---
 title: V2 assessments API
-description: /api/v1/assessments/* — create, tissue, VLM, evaluate, report, run (SSE), health, baseline, store, gateway, controller.
+description: /api/v1/assessments/* — create, segment, tissue, VLM, evaluate, report, run (SSE), health, baseline, store, gateway, controller.
 ---
 
 Path: [`api/v1/assessments/`](https://github.com/minesh16/woundcare-test/tree/main/api/v1/assessments)
@@ -11,6 +11,7 @@ Additive namespace. Core functions are callable without HTTP so `_controller.ts`
 | File | HTTP | Role |
 |---|---|---|
 | `create.ts` | `POST /api/v1/assessments/create` | Open a de-identified record, return `{ assessment_id }` |
+| `segment.ts` | `POST /api/v1/assessments/segment` | Wound boundary via the [provider chain](/docs/modules/api/#the-provider-chain) |
 | `tissue.ts` | `POST /api/v1/assessments/tissue` | HSI inside mask + periwound |
 | `vlm-features.ts` | `POST /api/v1/assessments/vlm-features` | Caged `generateObject` |
 | `evaluate.ts` | `POST /api/v1/assessments/evaluate` | `evaluate()` + audit write |
@@ -36,6 +37,10 @@ From `_gateway.ts` (preferences, not a hardcoded single id). Free-tier reachable
 `callGateway` skips a candidate on 4xx / `isRetryable: false` (a restricted-model 403 used to be retried, doubling latency). `isGatewayConfigured()` is true if `AI_GATEWAY_API_KEY`, `VERCEL_OIDC_TOKEN`, or `VERCEL` is set.
 
 `GET /health?models=true` lists resolved candidates (extra round-trip, opt-in).
+
+## Why `segment` returns `wound_area_cm2: null`
+
+The build spec puts `wound_area_cm2` and `calibration` in this response. They are returned as explicit nulls, because the scale comes from the reference marker, which `/api/analyze` detects and reports as `pxPerCm`. Area in cm² without a measured scale is the single number this app must never invent — so the field exists, says nothing, and says so.
 
 ## Store rules
 

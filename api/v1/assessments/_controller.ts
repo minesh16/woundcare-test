@@ -1,8 +1,7 @@
 import { evaluate } from '../../../src/decision/engine';
 import type { EngineInputs } from '../../../src/decision/engine.types';
 import type { AssessmentState, StepOutcome, StepName } from '../../../src/assessment/state';
-import { isSam2Configured, runSam2Segmentation } from '../../_sam2';
-import { selectWoundMask } from '../../_maskSelect';
+import { isSegmentationConfigured, runSegmentation } from '../../_segmentation';
 import { analyzeTissue } from './tissue';
 import { extractVlmFeatures } from './vlm-features';
 import { composeReport } from './report';
@@ -16,7 +15,7 @@ import { appendTimeline, buildAuditRecord, saveAssessment, writeAudit } from './
  * records what each one did, and hands the engine its inputs.
  *
  * Every step except `evaluate` is allowed to degrade:
- *   SAM 2 down   → HSV mask, confidence downgraded
+ *   boundary down→ next provider, then the HSV mask, confidence downgraded
  *   VLM down     → engine runs without the VLM axis
  *   report down  → deterministic template
  *   Supabase down→ result still returned, audit to stdout
@@ -59,50 +58,68 @@ export async function runAssessment(input: RunInput, emit: StepEmitter): Promise
   };
 
   // --- 1. Segment -----------------------------------------------------------
+  // The provider chain (FUSegNet → SAM 3 → SAM 2) lives in `_segmentation.ts`,
+  // which never throws: a dead backend becomes a recorded attempt and the next
+  // provider is tried. The orchestrator's job here is only to decide whether the
+  // step counts as `ok` or `degraded`, and to carry the attempts into the record.
   const segment = await timed('segment', record, async () => {
-    if (!isSam2Configured()) {
+    if (!isSegmentationConfigured()) {
       return {
         value: null,
         status: 'degraded' as const,
-        summary: 'SAM 2 not configured — using the on-device boundary instead.',
+        summary: 'No boundary model configured — using the on-device boundary instead.',
       };
     }
-    try {
-      const result = await runSam2Segmentation({
-        imageDataUrl: input.base64.startsWith('data:') ? input.base64 : `data:image/jpeg;base64,${input.base64}`,
-      });
-      const point = input.state.cv?.hsvCentroid ?? null;
-      const selection = point && result.individualMasks.length ? await selectWoundMask(result.individualMasks, point) : null;
-      return {
-        value: { maskUrl: selection?.maskUrl ?? result.combinedMask, model: result.model, selected: Boolean(selection) },
-        status: 'ok' as const,
-        summary: selection ? 'Wound boundary found.' : 'Boundary found, but the wound could not be isolated.',
-      };
-    } catch (error) {
+
+    const outcome = await runSegmentation({
+      imageDataUrl: input.base64.startsWith('data:') ? input.base64 : `data:image/jpeg;base64,${input.base64}`,
+      point: input.state.cv?.hsvCentroid ?? null,
+    });
+
+    if (!outcome.provider || !outcome.mask) {
       return {
         value: null,
         status: 'degraded' as const,
-        summary: `Boundary detection unavailable (${error instanceof Error ? error.message : 'failed'}) — using the on-device boundary.`,
+        summary: `${outcome.reason ?? 'Boundary detection unavailable'} — using the on-device boundary.`,
       };
     }
+
+    // A fallback that worked is still a fallback: say which provider answered
+    // and how many had to be tried, so a quietly degrading chain is visible in
+    // the progress stream rather than only in the audit log.
+    const fellBack = outcome.attempts.filter((a) => a.status !== 'ok').length;
+    return {
+      value: outcome,
+      status: 'ok' as const,
+      summary: fellBack
+        ? `Wound boundary found by ${outcome.provider} (after ${fellBack} other provider${fellBack === 1 ? '' : 's'}).`
+        : `Wound boundary found by ${outcome.provider}.`,
+    };
   });
 
   state.segment = segment
-    ? { source: 'sam2', maskUrl: segment.maskUrl, confidence: segment.selected ? 'high' : 'medium', model: segment.model }
+    ? {
+        source: segment.provider ?? 'unavailable',
+        maskUrl: segment.mask,
+        confidence: segment.confidence,
+        model: segment.model ?? undefined,
+        promptMode: segment.promptMode ?? undefined,
+      }
     : { source: 'unavailable', maskUrl: null, confidence: 'low' };
 
   // --- 2. Tissue ------------------------------------------------------------
   const tissue = await timed('tissue', record, async () => {
     const result = await analyzeTissue({
       base64: input.base64,
-      mask: segment?.maskUrl ?? null,
+      mask: segment?.mask ?? null,
+      maskProvider: segment?.provider ?? null,
       pxPerCm: input.pxPerCm ?? null,
     });
     return {
       value: result,
-      status: (result.tissue ? (result.maskSource === 'sam2' ? 'ok' : 'degraded') : 'failed') as StepOutcome['status'],
+      status: (result.tissue ? (result.maskSource === 'model' ? 'ok' : 'degraded') : 'failed') as StepOutcome['status'],
       summary: result.tissue
-        ? `Tissue measured inside the ${result.maskSource === 'sam2' ? 'detected' : 'on-device'} boundary.`
+        ? `Tissue measured inside the ${result.maskSource === 'model' ? 'detected' : 'on-device'} boundary.`
         : (result.reason ?? 'No wound area found.'),
     };
   });
