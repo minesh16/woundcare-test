@@ -6,6 +6,7 @@ import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, V
 import { DisclaimerFooter } from '@/components/DisclaimerFooter';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { ProgressHeader } from '@/components/ProgressHeader';
+import { ASSESSMENT_V2 } from '@/config/featureFlags';
 import { analyzeWoundImage } from '@/cv/opencvPipeline';
 import { segmentWoundUri, SegmentResult } from '@/cv/segment';
 import { formatArea } from '@/cv/measureArea';
@@ -26,6 +27,7 @@ const BOUNDARY_SOURCE: Record<NonNullable<SegmentResult['provider']>, string> = 
 export default function AnalyzeScreen() {
   const session = useSessionStore((state) => state.session);
   const setCvResult = useSessionStore((state) => state.setCvResult);
+  const setBoundaryProposal = useSessionStore((state) => state.setBoundaryProposal);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [segment, setSegment] = useState<SegmentResult | null>(null);
@@ -51,6 +53,22 @@ export default function AnalyzeScreen() {
         const seg = await segmentWoundUri(session.imageUri!, result.hsvCentroid);
         if (!cancelled && seg) {
           setSegment(seg);
+          // Carry the proposal onto the session so the review screen can act on
+          // it: a mask held only in this component's state could not be reviewed
+          // after navigating away.
+          setBoundaryProposal({
+            maskUrl: seg.mask,
+            provider: seg.provider,
+            model: seg.model ?? null,
+            outline: seg.outline ?? null,
+            areaPx: seg.selection?.areaPx ?? null,
+            areaPct:
+              seg.selection && seg.selection.totalPx > 0
+                ? Number(((100 * seg.selection.areaPx) / seg.selection.totalPx).toFixed(2))
+                : null,
+            multipleRegions: seg.multipleRegions ?? null,
+            confidence: seg.confidence,
+          });
         }
       } catch (analysisError) {
         if (!cancelled) {
@@ -66,7 +84,7 @@ export default function AnalyzeScreen() {
     return () => {
       cancelled = true;
     };
-  }, [session.imageUri, session.includeCoinReference, setCvResult]);
+  }, [session.imageUri, session.includeCoinReference, setBoundaryProposal, setCvResult]);
 
   const cv = session.cv;
 
@@ -207,9 +225,12 @@ export default function AnalyzeScreen() {
 
       <View style={styles.footer}>
         <PrimaryButton
-          label="Continue to location"
+          label={ASSESSMENT_V2 ? 'Check the outline' : 'Continue to location'}
           disabled={!cv || loading}
-          onPress={() => router.push('/location')}
+          // With assessmentV2 on, the boundary goes to a clinician before anything
+          // is measured inside it. With it off, the old route is unchanged —
+          // additive, never destructive.
+          onPress={() => router.push(ASSESSMENT_V2 ? '/review' : '/location')}
         />
         <DisclaimerFooter />
       </View>

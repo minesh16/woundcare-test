@@ -83,6 +83,33 @@ export type MaskStats = {
   height: number;
 };
 
+export type MaskPixels = MaskStats & {
+  /** One byte per pixel, 0 or 255 — the form `_maskGeometry` works in. */
+  data: Uint8Array;
+};
+
+/**
+ * Decode a mask to flat 0/255 pixels, plus its measurements.
+ *
+ * One decode serves both callers that need it: the plausibility check (area vs
+ * frame) and the outline trace that seeds the review screen's editor. Decoding
+ * twice for those two would double the cost of every segmentation call.
+ */
+export async function loadMaskPixels(url: string): Promise<MaskPixels | null> {
+  const png = await decodeMask(url);
+  if (!png) return null;
+  const totalPx = png.width * png.height;
+  const data = new Uint8Array(totalPx);
+  let areaPx = 0;
+  for (let i = 0; i < totalPx; i += 1) {
+    if (isSet(png.data, i * 4)) {
+      data[i] = 255;
+      areaPx += 1;
+    }
+  }
+  return { data, areaPx, totalPx, width: png.width, height: png.height };
+}
+
 /**
  * Decode a single mask and measure it. Used on the single-mask backends
  * (FUSegNet, or SAM 3 when it matched exactly one instance) where there is
@@ -94,15 +121,10 @@ export type MaskStats = {
  * not read.
  */
 export async function maskStats(url: string): Promise<MaskStats | null> {
-  const png = await decodeMask(url);
-  if (!png) return null;
-  const totalPx = png.width * png.height;
-  return {
-    areaPx: countSetPixels(png.data, totalPx),
-    totalPx,
-    width: png.width,
-    height: png.height,
-  };
+  const pixels = await loadMaskPixels(url);
+  if (!pixels) return null;
+  const { areaPx, totalPx, width, height } = pixels;
+  return { areaPx, totalPx, width, height };
 }
 
 /**

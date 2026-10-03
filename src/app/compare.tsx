@@ -105,7 +105,7 @@ export default function CompareScreen() {
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
-        <ProgressHeader step={4} title="What grounding changes" />
+        <ProgressHeader step={5} title="What grounding changes" />
 
         {!ASSESSMENT_V2 ? (
           <Text style={styles.warning}>

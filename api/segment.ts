@@ -5,6 +5,7 @@ import {
   logSegmentation,
   runSegmentation,
   type ImagePoint,
+  type MaskPoint,
   type MaskSelection,
   type PromptMode,
   type SegmentationAttempt,
@@ -49,6 +50,10 @@ type SegmentResponse = {
   selection: MaskSelection | null;
   /** Per-mask confidence when the provider reports it (SAM 3 does). */
   scores: number[] | null;
+  /** Editable fractional polygon traced from the mask, for the review step. */
+  outline: MaskPoint[] | null;
+  /** The provider saw more than one disconnected region. */
+  multipleRegions: boolean | null;
   confidence: 'high' | 'medium' | 'low';
   attempts: SegmentationAttempt[];
   point?: ImagePoint;
@@ -93,6 +98,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       masks: [],
       selection: null,
       scores: null,
+      outline: null,
+      multipleRegions: null,
       confidence: 'low',
       attempts: [],
       point,
@@ -116,6 +123,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     masks: outcome.masks,
     selection: outcome.selection,
     scores: outcome.scores,
+    outline: outcome.outline,
+    multipleRegions: outcome.multipleRegions,
     confidence: outcome.confidence,
     attempts: outcome.attempts,
     point,

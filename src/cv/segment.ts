@@ -47,6 +47,14 @@ export type SegmentResult = {
   selection: MaskSelection | null;
   /** Per-mask confidence when the provider reports it (SAM 3 does). */
   scores: number[] | null;
+  /**
+   * The chosen mask's boundary as an editable fractional polygon — what the
+   * review screen seeds its editor with. Null when it could not be traced, in
+   * which case the clinician draws instead of adjusting.
+   */
+  outline: { x: number; y: number }[] | null;
+  /** The provider saw more than one disconnected region. */
+  multipleRegions: boolean | null;
   confidence: 'high' | 'medium' | 'low';
   attempts: SegmentAttempt[];
   point?: ImagePoint;

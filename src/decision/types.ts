@@ -145,6 +145,47 @@ export type BaselineComparison = {
   latencyMs?: number;
 };
 
+/**
+ * The boundary a clinician signed off on the review step.
+ *
+ * This is the record of a human decision, not a measurement, which is why it
+ * lives on the session alongside `cv` rather than inside it: the mask the tissue
+ * percentages are measured inside must be the one that was approved, and the
+ * record has to say which of approve / adjust / draw happened.
+ */
+export type ReviewedBoundary = {
+  /** The mask actually approved — the model's, or one rasterised from the clinician's polygon. */
+  maskUrl: string;
+  approval: 'approved' | 'adjusted' | 'drawn';
+  /** The model that proposed it; null when the clinician drew it from scratch. */
+  provider: 'sam3' | 'fusegnet' | null;
+  model: string | null;
+  /** The polygon, kept so the editor can be reopened without re-tracing. */
+  outline: { x: number; y: number }[] | null;
+  areaPx: number | null;
+  areaPct: number | null;
+  reviewedAt: string;
+};
+
+/**
+ * The model's proposed boundary, carried from analyze to review.
+ *
+ * Held on the session rather than in the analyze screen's local state because the
+ * review screen is a different screen: a proposal that only existed in a
+ * component's `useState` could not be reviewed after navigating.
+ */
+export type BoundaryProposal = {
+  maskUrl: string | null;
+  provider: 'sam3' | 'fusegnet' | null;
+  model: string | null;
+  /** Editable outline traced from the mask; null when it could not be traced. */
+  outline: { x: number; y: number }[] | null;
+  areaPx: number | null;
+  areaPct: number | null;
+  multipleRegions: boolean | null;
+  confidence: 'high' | 'medium' | 'low';
+};
+
 export type ScanSession = {
   id: string;
   createdAt: string;
@@ -152,6 +193,10 @@ export type ScanSession = {
   imageUri: string | null;
   includeCoinReference: boolean;
   cv: CvResult | null;
+  /** What segmentation proposed, pending review. */
+  boundaryProposal: BoundaryProposal | null;
+  /** Null until the review step; see `ReviewedBoundary`. */
+  boundary: ReviewedBoundary | null;
   bodyZone: BodyZone | null;
   answers: QuestionnaireAnswers;
   result: AssessmentResult | null;
@@ -190,6 +235,8 @@ export const defaultSession = (): ScanSession => ({
   imageUri: null,
   includeCoinReference: false,
   cv: null,
+  boundaryProposal: null,
+  boundary: null,
   bodyZone: null,
   answers: defaultAnswers(),
   result: null,

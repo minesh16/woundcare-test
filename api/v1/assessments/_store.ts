@@ -145,6 +145,12 @@ export type AuditRecord = {
     llm?: string;
     segmentation?: string;
     segmentationProvider?: string;
+    /**
+     * Whether a clinician approved, adjusted or drew the boundary. Absent means
+     * the boundary was never reviewed — which, for an assurance reviewer, is the
+     * single most useful thing this column can tell them.
+     */
+    segmentationApproval?: string;
   };
   steps: StepOutcome[];
 };
@@ -180,6 +186,7 @@ export function buildAuditRecord(
       vlm: state.vlmModel ?? undefined,
       segmentation: state.segment?.model,
       segmentationProvider: state.segment?.source === 'unavailable' ? undefined : state.segment?.source,
+      segmentationApproval: state.segment?.approval,
       llm: state.report?.model,
     },
     steps: state.steps ?? [],

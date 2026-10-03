@@ -17,7 +17,7 @@ export default function QuestionsScreen() {
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
-        <ProgressHeader step={3} title="A few questions" />
+        <ProgressHeader step={4} title="A few questions" />
 
         <QuestionCard title="Has the wound been present for more than 30 days?">
           {(['yes', 'no', 'unsure'] as const).map((option) => (

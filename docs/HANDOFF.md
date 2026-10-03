@@ -498,16 +498,111 @@ a wound, and would have done so on a photo of a carpet. So:
 
 ---
 
-## The app's real flow vs the intended one (checked 3 Oct 2026)
+## DONE — the review step, and the main flow on `run` (3 Oct 2026)
 
 ```
-intended:  capture → analyze (quality gate + SAM 3 draft) → review (clinician adjusts + APPROVES)
-                   → location → questions → result (tissue confirm + pathway) → compare
-actual:    capture → analyze ──────────────────────────────────────────────────→ location
-                   → questions → result → compare
+capture → analyze (quality gate + model draft) → review (approve / adjust / draw)
+        → location → questions → result (server pipeline + audit) → compare
 ```
 
-**There is no `review` screen.** `src/app/` is `index, capture, location, analyze, questions,
+Both gaps recorded below are now closed. The section is kept because the reasoning is
+the record of why the architecture and the app had drifted apart.
+
+### The review screen — `src/app/review.tsx`
+Three outcomes, all recorded:
+
+| action | what it does | mask used | provider attribution |
+|---|---|---|---|
+| **Approve** | the model's outline is correct | the model's **original mask**, untouched | the model |
+| **Adjust** | edit the model's outline, pre-seeded with it | rasterised from the clinician's polygon | the model |
+| **Reject → draw** | outline the wound from scratch, empty editor | rasterised from the clinician's polygon | **null — clinician** |
+
+Approve is deliberately **lossless**: it uses the mask the model produced, not a
+re-rasterisation of the traced outline, so approving changes nothing about what is
+measured. Only adjust and draw go through the polygon.
+
+A rejected boundary is attributed to nobody but the clinician — `provider: null`,
+`source: 'clinician'`. Letting a hand-drawn outline inherit "fusegnet" would be a false
+record of which model drew it.
+
+### Geometry — `api/_maskGeometry.ts` (import-free, 55 tests)
+- `traceOutline` — largest 4-connected region → Moore-neighbour contour walk →
+  Douglas-Peucker simplification → fractional polygon. Largest region only, because a
+  contour that jumped between blobs would enclose the healthy skin between them. Moore
+  tracing rather than "collect boundary pixels and sort them", which self-crosses on any
+  concave shape, and wounds are concave.
+- `rasterisePolygon` — scanline, even-odd, sampled at row centres. Even-odd matters: a
+  min/max-x fill would fill the notch that makes a shape concave.
+- `validatePolygon` — strict, because this is caller-supplied data that decides which
+  pixels count as wound (`docs/SECURITY_AUDIT.md` MW-12).
+- The load-bearing test is the **round trip** — rasterise → trace → rasterise, asserting
+  IoU ≥ 0.97 on square, concave and blob shapes, plus resolution-independence across a 4×
+  change. A bug in that loop silently moves the wound edge and every tissue percentage
+  inherits it.
+
+### `POST /api/v1/assessments/mask`
+Polygon (fractional) → PNG mask. Server-side because **Expo-native has no canvas**, so
+this is the only way both platforms turn the same polygon into the same mask (§2.4 parity).
+Plausibility is **reported, never enforced**: the automatic gate exists to catch a *model*
+returning nonsense, and here a human has deliberately drawn this boundary. The UI warns
+once and a second Save accepts it — the clinician is the authority on this screen.
+
+### `run` honours an approved boundary
+`RunInput.approvedBoundary` makes the orchestrator **skip segmentation entirely**. That is
+the point: re-segmenting would measure tissue inside a *different* boundary from the one a
+human signed off, and the audit record's approval field would name an approval that did not
+apply to the mask used.
+
+`SegmentSummary` gained `approval` and `source: 'clinician'`; the audit log gained
+`models.segmentationApproval`. For an assurance reviewer that field is the difference
+between "a model decided where the wound was" and "a clinician approved where the wound
+was" — and its **absence** says the boundary was never reviewed.
+
+### Verified live through `vercel dev`
+```
+POST /api/segment            → 36-point outline traced from FUSegNet's mask
+POST .../mask                → 8,430px / 3.22% of frame, plausible
+     invalid polygons        → 400 with the reason (2 points / out of range / not an array)
+POST .../run (approved)      → segment ok 0ms "Using the clinician-adjusted boundary."
+                               tissue ok 1.8s  maskProvider=fusegnet area=8430px
+                               vlm ok 9.8s · evaluate ok 1ms pathway 22 · report ok 26s
+audit_log row                → "segmentationApproval": "adjusted",
+                                "segmentationProvider": "fusegnet"
+[boundary] log               → approval adjusted, 36 points, 3.22% (shoelace 3.19%)
+```
+`segment` at **0 ms** is the proof the chain was skipped rather than re-run.
+
+### Known issues / carry-overs
+- **The editor is tap-based, not drag-based.** Tap to add, tap a point to select, tap
+  again to move; Undo / Clear. Dragging is the natural gesture but pan handling differs
+  between Expo-web and native, and a half-working drag on one platform is worse than a tap
+  that behaves identically on both. Freehand is the obvious follow-up.
+- **Tracing loses a little area.** FUSegNet's 8,840 px mask traced and re-rasterised to
+  8,430 px — about 4.6% smaller, from the `OUTLINE_TOLERANCE` simplification on a small
+  shape. It only affects *adjust* (approve is lossless), and the clinician is editing the
+  outline anyway, but tightening the tolerance for small masks is worth doing.
+- **No clinician identity.** The approval is recorded; *who* approved is not, because the
+  system has no authentication at all (`SECURITY_AUDIT.md` MW-01). An approval without an
+  approver is weaker evidence than it looks, and MW-01 is now a blocker for the audit
+  trail's value, not just for access control.
+- `review` is behind `assessmentV2`: with the flag off, `analyze` still goes straight to
+  `/location` and the old flow is untouched.
+- Expo's typed-route file (`.expo/types/router.d.ts`) is regenerated by `expo start`, **not**
+  by `expo export`. After adding a screen, `npx expo start` once or `typecheck` fails on the
+  new route while the app itself works.
+
+### Still to do here
+The main flow now writes an audit row, but `result.tsx` renders the **on-device** engine
+result and runs the server pipeline alongside it for the VLM axis, the written report and
+the audit. Those two should not be able to disagree. Reconciling them — or rendering the
+server result once it lands — is the obvious next step, and is why the on-device result is
+still what the screen states today.
+
+---
+
+## Superseded — the gap this replaced
+
+**There was no `review` screen.** `src/app/` is `index, capture, location, analyze, questions,
 result, compare`; `analyze.tsx` pushes straight to `/location`. The SAM 3 draft happens — a
 proxied browser run shows `POST /api/analyze` then `POST /api/segment` — but no screen lets a
 clinician adjust or approve the boundary before the tissue percentages are measured inside it.
@@ -542,11 +637,10 @@ for the app's main flow to go through `run`, which audits properly — which is 
 
 ## NEXT — remaining Phase 3 + backlog
 
-1. **Decide the `review` step, and move the main flow onto `/api/v1/assessments/run`.** These are
-   one piece of work: an approve gate needs a server round-trip, and `run` is what audits. Today
-   capture→result bypasses the VLM, the report LLM, persistence and the audit log entirely, and
-   no screen lets a clinician approve the boundary. This is the biggest gap between what the app
-   does and what the architecture claims.
+1. **Reconcile the two engine results on `result.tsx`.** The screen states the on-device result
+   and runs the server pipeline beside it; they must not be able to disagree. Also: record *who*
+   approved a boundary, which needs MW-01 (authentication) — an approval with no approver is
+   weaker evidence than it looks.
 2. **Add `FAL_KEY`, `FUSEGNET_MODAL_URL` and `FUSEGNET_AUTH_TOKEN` to the Vercel project**
    (Production **and** Preview, server-side) and redeploy. Both providers are verified
    locally; the deployment has neither, so it is currently falling back to the on-device HSV

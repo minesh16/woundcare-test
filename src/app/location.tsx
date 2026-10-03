@@ -15,7 +15,7 @@ export default function LocationScreen() {
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
-        <ProgressHeader step={2} title="Where is the wound?" />
+        <ProgressHeader step={3} title="Where is the wound?" />
         <BodySelector selectedZone={bodyZone} onSelect={setBodyZone} />
       </ScrollView>
 

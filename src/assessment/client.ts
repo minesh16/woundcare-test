@@ -114,6 +114,18 @@ export async function runAssessmentStream(
     pxPerCm?: number | null;
     areaCm2?: number | null;
     bodyZoneLabel?: string | null;
+    /**
+     * A boundary the clinician reviewed. When supplied the server does NOT
+     * re-segment — the tissue percentages are measured inside exactly the mask
+     * that was signed off, and the audit record's approval refers to that mask.
+     */
+    approvedBoundary?: {
+      maskUrl: string;
+      approval: 'approved' | 'adjusted' | 'drawn';
+      provider: 'sam3' | 'fusegnet' | null;
+      model: string | null;
+      outlinePoints?: number | null;
+    };
   },
   onStep?: (step: StepOutcome) => void,
 ): Promise<AssessmentState | null> {
@@ -167,6 +179,48 @@ export async function runAssessmentStream(
     return final;
   } catch (error) {
     console.warn('Assessment run failed; falling back to the on-device flow.', error);
+    return null;
+  }
+}
+
+/**
+ * Rasterise a clinician's boundary polygon into a mask, server-side.
+ *
+ * Server-side because Expo-native has no canvas: doing it here is the only way
+ * both platforms turn the same polygon into the same mask, and the mask is what
+ * every tissue percentage is measured inside (build spec §2.4, web/native parity).
+ *
+ * Returns null on any failure so the review screen can say "try again" rather
+ * than committing a boundary it never actually built.
+ */
+export async function rasteriseBoundaryRemote(body: {
+  polygon: { x: number; y: number }[];
+  approval?: 'adjusted' | 'drawn';
+  assessment_id?: string;
+  width?: number;
+  height?: number;
+}): Promise<{
+  mask: string;
+  areaPx: number;
+  framePx: number;
+  areaPct: number;
+  plausibility: string;
+  plausibilityReason: string;
+} | null> {
+  if (!ASSESSMENT_V2) return null;
+  try {
+    const response = await fetch(url('/api/v1/assessments/mask'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      console.warn('Boundary rasterise failed with status', response.status);
+      return null;
+    }
+    return await response.json();
+  } catch (error) {
+    console.warn('Boundary rasterise request failed.', error);
     return null;
   }
 }

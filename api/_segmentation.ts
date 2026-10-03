@@ -28,7 +28,8 @@
  */
 
 import { isFusegnetConfigured, runFusegnet } from './_fusegnet';
-import { maskStats, selectWoundMask, type MaskSelection } from './_maskSelect';
+import { traceOutline, type MaskPoint } from './_maskGeometry';
+import { loadMaskPixels, selectWoundMask, type MaskSelection } from './_maskSelect';
 import { isSam3Configured, runSam3 } from './_sam3';
 import {
   confidenceFromScore,
@@ -43,6 +44,7 @@ import {
 
 export type { ImagePoint, MaskConfidence, SegmentationProvider } from './_segmentationParse';
 export type { MaskSelection } from './_maskSelect';
+export type { MaskPoint, BoundaryApproval } from './_maskGeometry';
 
 /**
  * How the boundary was obtained — recorded because it is the single most
@@ -79,6 +81,15 @@ export type SegmentationOutcome = {
    * Null when the provider does not report it.
    */
   multipleRegions: boolean | null;
+  /**
+   * The chosen mask's boundary as an editable fractional polygon.
+   *
+   * This is what makes the review screen possible: the clinician adjusts THIS,
+   * rather than being handed an opaque PNG and a yes/no. Null when the mask could
+   * not be traced, in which case the review screen offers "draw" instead of
+   * "adjust" — there is nothing honest to pre-fill the editor with.
+   */
+  outline: MaskPoint[] | null;
   confidence: MaskConfidence;
   model: string | null;
   promptMode: PromptMode | null;
@@ -94,6 +105,7 @@ type Candidate = {
   selection: MaskSelection | null;
   scores: number[] | null;
   multipleRegions: boolean | null;
+  outline: MaskPoint[] | null;
   confidence: MaskConfidence;
   model: string;
   promptMode: PromptMode;
@@ -146,12 +158,13 @@ async function tryFusegnet(imageDataUrl: string): Promise<Candidate> {
   const mask = result.mask;
 
   // Measure it before trusting it: a mask covering the whole frame or two
-  // pixels is a failure the tissue classifier cannot detect on its own.
-  const stats = await maskStats(mask);
-  if (!stats) {
+  // pixels is a failure the tissue classifier cannot detect on its own. The same
+  // decode also yields the outline the review screen edits.
+  const pixels = await loadMaskPixels(mask);
+  if (!pixels) {
     throw new Error('FUSegNet returned a mask that could not be decoded.');
   }
-  const verdict = maskPlausibility(stats.areaPx, stats.totalPx);
+  const verdict = maskPlausibility(pixels.areaPx, pixels.totalPx);
   if (verdict !== 'plausible') {
     throw new ImplausibleMask(`FUSegNet: ${describePlausibility(verdict)}.`);
   }
@@ -159,9 +172,10 @@ async function tryFusegnet(imageDataUrl: string): Promise<Candidate> {
   return {
     mask,
     masks: [mask],
-    selection: { index: 0, maskUrl: mask, areaPx: stats.areaPx, totalPx: stats.totalPx },
+    selection: { index: 0, maskUrl: mask, areaPx: pixels.areaPx, totalPx: pixels.totalPx },
     scores: typeof result.score === 'number' ? [result.score] : null,
     multipleRegions: result.multipleRegions,
+    outline: traceOutline(pixels.data, pixels.width, pixels.height),
     confidence: fusegnetConfidence(result.score),
     model: result.model,
     promptMode: 'wound-specific',
@@ -174,19 +188,20 @@ async function trySam3(imageDataUrl: string, point: ImagePoint | null): Promise<
   // One match is the common case for a single wound: take it, and check its size.
   if (result.masks.length === 1) {
     const mask = result.masks[0];
-    const stats = await maskStats(mask);
-    if (!stats) throw new Error('SAM 3 returned a mask that could not be decoded.');
-    const verdict = maskPlausibility(stats.areaPx, stats.totalPx);
+    const pixels = await loadMaskPixels(mask);
+    if (!pixels) throw new Error('SAM 3 returned a mask that could not be decoded.');
+    const verdict = maskPlausibility(pixels.areaPx, pixels.totalPx);
     if (verdict !== 'plausible') {
       throw new ImplausibleMask(`SAM 3: ${describePlausibility(verdict)}.`);
     }
     return {
       mask,
       masks: result.masks,
-      selection: { index: 0, maskUrl: mask, areaPx: stats.areaPx, totalPx: stats.totalPx },
+      selection: { index: 0, maskUrl: mask, areaPx: pixels.areaPx, totalPx: pixels.totalPx },
       scores: result.scores,
       // One match from a concept prompt is, by definition, one region.
       multipleRegions: false,
+      outline: traceOutline(pixels.data, pixels.width, pixels.height),
       confidence: confidenceFromScore(result.scores?.[0] ?? null),
       model: result.model,
       promptMode: 'concept',
@@ -203,9 +218,10 @@ async function trySam3(imageDataUrl: string, point: ImagePoint | null): Promise<
   const mask = result.masks[index];
   if (!mask) throw new Error('SAM 3 returned no usable mask.');
 
-  const stats = selection ?? (await maskStats(mask));
-  if (stats) {
-    const verdict = maskPlausibility(stats.areaPx, stats.totalPx);
+  // One decode of the chosen mask serves the plausibility check and the outline.
+  const pixels = await loadMaskPixels(mask);
+  if (pixels) {
+    const verdict = maskPlausibility(pixels.areaPx, pixels.totalPx);
     if (verdict !== 'plausible') {
       throw new ImplausibleMask(`SAM 3: ${describePlausibility(verdict)}.`);
     }
@@ -218,6 +234,7 @@ async function trySam3(imageDataUrl: string, point: ImagePoint | null): Promise<
     scores: result.scores,
     // SAM 3 matched the concept more than once in this frame.
     multipleRegions: result.masks.length > 1,
+    outline: pixels ? traceOutline(pixels.data, pixels.width, pixels.height) : null,
     confidence: selection ? 'high' : 'medium',
     model: result.model,
     promptMode: 'concept',
@@ -278,6 +295,7 @@ export async function runSegmentation(args: {
     selection: null,
     scores: null,
     multipleRegions: null,
+    outline: null,
     confidence: 'low',
     model: null,
     promptMode: null,
@@ -320,6 +338,7 @@ export function logSegmentation(outcome: SegmentationOutcome, context?: { assess
       areaPct: outcome.selection ? Number(((100 * outcome.selection.areaPx) / outcome.selection.totalPx).toFixed(2)) : null,
       scores: outcome.scores,
       multipleRegions: outcome.multipleRegions,
+      outlinePoints: outcome.outline?.length ?? null,
       // The whole chain, so a silent degradation is visible in the logs rather
       // than only in a response nobody kept.
       attempts: outcome.attempts.map((a) => ({ provider: a.provider, status: a.status, ms: a.ms, reason: a.reason ?? null })),

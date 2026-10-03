@@ -8,7 +8,7 @@ type ProgressHeaderProps = {
   title: string;
 };
 
-export function ProgressHeader({ step, total = 4, title }: ProgressHeaderProps) {
+export function ProgressHeader({ step, total = 5, title }: ProgressHeaderProps) {
   const progress = step / total;
 
   return (

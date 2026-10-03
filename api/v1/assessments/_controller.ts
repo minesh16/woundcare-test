@@ -1,6 +1,12 @@
 import { evaluate } from '../../../src/decision/engine';
 import type { EngineInputs } from '../../../src/decision/engine.types';
-import type { AssessmentState, StepOutcome, StepName } from '../../../src/assessment/state';
+import type {
+  AssessmentState,
+  BoundaryApprovalName,
+  SegmentationProviderName,
+  StepOutcome,
+  StepName,
+} from '../../../src/assessment/state';
 import { isSegmentationConfigured, logSegmentation, runSegmentation } from '../../_segmentation';
 import { analyzeTissue } from './tissue';
 import { extractVlmFeatures } from './vlm-features';
@@ -29,6 +35,23 @@ export type RunInput = {
   pxPerCm?: number | null;
   areaCm2?: number | null;
   bodyZoneLabel?: string | null;
+  /**
+   * A boundary a clinician has already reviewed on the review step.
+   *
+   * When present the segmentation chain is **not run**. That is the point: the
+   * clinician looked at this exact mask and approved, adjusted or drew it, so
+   * re-segmenting would silently measure tissue inside a *different* boundary
+   * from the one a human signed off — and the audit record would name an approval
+   * that did not apply to the mask used.
+   */
+  approvedBoundary?: {
+    maskUrl: string;
+    approval: BoundaryApprovalName;
+    /** The model that proposed it, or null when the clinician drew it from scratch. */
+    provider?: SegmentationProviderName | null;
+    model?: string | null;
+    outlinePoints?: number | null;
+  } | null;
 };
 
 export type StepEmitter = (outcome: StepOutcome) => void;
@@ -62,7 +85,24 @@ export async function runAssessment(input: RunInput, emit: StepEmitter): Promise
   // which never throws: a dead backend becomes a recorded attempt and the next
   // provider is tried. The orchestrator's job here is only to decide whether the
   // step counts as `ok` or `degraded`, and to carry the attempts into the record.
+  //
+  // Unless a clinician has already reviewed a boundary, in which case there is
+  // nothing to decide and nothing to re-run — see `RunInput.approvedBoundary`.
+  const approved = input.approvedBoundary ?? null;
+
   const segment = await timed('segment', record, async () => {
+    if (approved) {
+      return {
+        value: null,
+        status: 'ok' as const,
+        summary:
+          approved.approval === 'drawn'
+            ? 'Using the boundary the clinician drew.'
+            : approved.approval === 'adjusted'
+              ? 'Using the clinician-adjusted boundary.'
+              : 'Using the boundary the clinician approved.',
+      };
+    }
     if (!isSegmentationConfigured()) {
       return {
         value: null,
@@ -98,22 +138,35 @@ export async function runAssessment(input: RunInput, emit: StepEmitter): Promise
     };
   });
 
-  state.segment = segment
+  state.segment = approved
     ? {
-        source: segment.provider ?? 'unavailable',
-        maskUrl: segment.mask,
-        confidence: segment.confidence,
-        model: segment.model ?? undefined,
-        promptMode: segment.promptMode ?? undefined,
+        // A hand-drawn boundary has no model behind it, so it is attributed to
+        // the clinician rather than to a provider that did not produce it.
+        source: approved.provider ?? 'clinician',
+        maskUrl: approved.maskUrl,
+        // A reviewed boundary is the highest confidence this pipeline can report:
+        // a human looked at this exact mask.
+        confidence: 'high',
+        model: approved.model ?? undefined,
+        approval: approved.approval,
+        outlinePoints: approved.outlinePoints ?? undefined,
       }
-    : { source: 'unavailable', maskUrl: null, confidence: 'low' };
+    : segment
+      ? {
+          source: segment.provider ?? 'unavailable',
+          maskUrl: segment.mask,
+          confidence: segment.confidence,
+          model: segment.model ?? undefined,
+          promptMode: segment.promptMode ?? undefined,
+        }
+      : { source: 'unavailable', maskUrl: null, confidence: 'low' };
 
   // --- 2. Tissue ------------------------------------------------------------
   const tissue = await timed('tissue', record, async () => {
     const result = await analyzeTissue({
       base64: input.base64,
-      mask: segment?.mask ?? null,
-      maskProvider: segment?.provider ?? null,
+      mask: approved?.maskUrl ?? segment?.mask ?? null,
+      maskProvider: approved ? (approved.provider ?? null) : (segment?.provider ?? null),
       pxPerCm: input.pxPerCm ?? null,
     });
     return {

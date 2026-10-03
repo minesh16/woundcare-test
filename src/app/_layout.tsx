@@ -17,6 +17,7 @@ export default function RootLayout() {
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="capture" options={{ title: 'Capture wound' }} />
         <Stack.Screen name="analyze" options={{ title: 'Your photo' }} />
+        <Stack.Screen name="review" options={{ title: 'Check the outline' }} />
         <Stack.Screen name="location" options={{ title: 'Wound location' }} />
         <Stack.Screen name="questions" options={{ title: 'Questions' }} />
         <Stack.Screen name="result" options={{ title: 'Your result' }} />

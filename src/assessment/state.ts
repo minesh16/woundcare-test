@@ -38,12 +38,30 @@ export type SegmentationProviderName = 'sam3' | 'fusegnet';
 /** How the boundary was obtained — see `PromptMode` in `api/_segmentation.ts`. */
 export type SegmentPromptMode = 'concept' | 'wound-specific';
 
+/**
+ * What the clinician did with the model's proposed boundary, on the review step.
+ *
+ * This is the most important field in the record for an assurance reviewer: it is
+ * the difference between "a model decided where the wound was" and "a clinician
+ * approved where the wound was". `drawn` means the model's boundary was rejected
+ * outright and the outline is entirely human.
+ *
+ * Mirrors `BoundaryApproval` in `api/_maskGeometry.ts` (types only; see the note
+ * on `SegmentationProviderName`).
+ */
+export type BoundaryApprovalName = 'approved' | 'adjusted' | 'drawn';
+
 export type SegmentSummary = {
-  source: SegmentationProviderName | 'unavailable';
+  /** `clinician` when the boundary is hand-drawn and no model produced it. */
+  source: SegmentationProviderName | 'clinician' | 'unavailable';
   maskUrl: string | null;
   confidence: 'high' | 'medium' | 'low';
   model?: string;
   promptMode?: SegmentPromptMode;
+  /** Present once the boundary has been through the review step. */
+  approval?: BoundaryApprovalName;
+  /** Points in the clinician's polygon, when they adjusted or drew one. */
+  outlinePoints?: number;
 };
 
 export type TissueSummary = {

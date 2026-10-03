@@ -58,6 +58,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
         pxPerCm: body.pxPerCm ?? null,
         areaCm2: body.areaCm2 ?? null,
         bodyZoneLabel: body.bodyZoneLabel ?? null,
+        // A boundary the clinician reviewed. When present the chain is skipped —
+        // see RunInput.approvedBoundary for why re-segmenting would be wrong.
+        approvedBoundary: body.approvedBoundary ?? null,
       },
       (outcome) => send(res, 'step', outcome),
     );

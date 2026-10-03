@@ -6,8 +6,10 @@ import {
   AssessmentResult,
   BaselineComparison,
   BodyZone,
+  BoundaryProposal,
   CvResult,
   QuestionnaireAnswers,
+  ReviewedBoundary,
   ScanSession,
   defaultAnswers,
   defaultSession,
@@ -19,6 +21,8 @@ type SessionState = {
   setConsent: (given: boolean) => void;
   setImage: (uri: string, includeCoinReference: boolean) => void;
   setCvResult: (cv: CvResult) => void;
+  setBoundaryProposal: (proposal: BoundaryProposal | null) => void;
+  setBoundary: (boundary: ReviewedBoundary | null) => void;
   setBodyZone: (zone: BodyZone) => void;
   setAnswers: (answers: Partial<QuestionnaireAnswers>) => void;
   setV2Run: (v2: Record<string, unknown> | null, baseline: BaselineComparison | null) => void;
@@ -42,12 +46,24 @@ export const useSessionStore = create<SessionState>()(
             imageUri: uri,
             includeCoinReference,
             cv: null,
+            // A boundary approved for the previous photo must not survive a new
+            // one — it would be a human sign-off on a different wound.
+            boundaryProposal: null,
+            boundary: null,
             result: null,
           },
         })),
       setCvResult: (cv) =>
         set((state) => ({
           session: { ...state.session, cv },
+        })),
+      setBoundaryProposal: (proposal) =>
+        set((state) => ({
+          session: { ...state.session, boundaryProposal: proposal },
+        })),
+      setBoundary: (boundary) =>
+        set((state) => ({
+          session: { ...state.session, boundary },
         })),
       setBodyZone: (zone) =>
         set((state) => ({
