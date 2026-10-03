@@ -75,4 +75,4 @@ These are carry-overs, not roadmap bets:
 - Pre-existing `app-tabs.web.tsx` `/explore` typecheck error
 - Depth remains `depthAssessed: false` everywhere (2D limitation by design)
 
-<!-- docs-hook: last auto-checked against commit ea3f028 on 2026-10-03 -->
+<!-- docs-hook: last auto-checked against commit 9fe8ec2 on 2026-10-03 -->

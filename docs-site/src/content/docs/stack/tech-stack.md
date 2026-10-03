@@ -83,4 +83,4 @@ There is **no** Electron / native desktop app. "Desktop" means the web build in 
 | Native cloud builds | EAS (`eas.json`) | development / preview / production profiles |
 | This site | Astro 7 + Starlight + `astro-mermaid` | Static docs, separate Vercel project |
 
-<!-- docs-hook: last auto-checked against commit e8cef6a on 2026-10-03 -->
+<!-- docs-hook: last auto-checked against commit 9fe8ec2 on 2026-10-03 -->
