@@ -53,6 +53,20 @@ npm run web
 ```
 
 </TabItem>
+<TabItem label="API only (no CLI needed)" icon="seti:config">
+
+Serves the `api/` files on :3000 with no Vercel CLI. This is the only way to exercise the
+deployed handlers' request/response wrappers locally — `npm run web` has no `/api` routes.
+
+```bash
+npm run dev:api
+curl http://localhost:3000/api/v1/assessments/health
+```
+
+It mirrors Vercel's filesystem routing on purpose, including that a nested `api/**/index.ts`
+is **not** routed to its directory path. A route that 404s in production 404s here.
+
+</TabItem>
 <TabItem label="Web + functions" icon="cloud-download">
 
 Camera needs HTTPS / localhost secure context.

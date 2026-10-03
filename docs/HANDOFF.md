@@ -359,8 +359,21 @@ this fallback chain, so it is flagged rather than quietly built.
 - `GET /api/v1/assessments/health` reports `segmentation.order`, per-provider `configured`,
   and `segmentation.active` — the first provider that will actually answer.
 
+### Local API dev server
+`npm run dev:api` (`scripts/dev-server.mts`, run under `tsx`) serves the `api/` files over
+HTTP on :3000. It exists because `npm run web` has **no** `/api` routes and `vercel dev` needs
+the Vercel CLI, which is not installed — so until now the deployed handlers' request/response
+wrappers were covered by `typecheck` only. That is the gap this file used to record as "hit
+them once deployed"; it is now closable locally.
+
+It mirrors Vercel's filesystem routing deliberately, including that a nested `api/**/index.ts`
+is **not** routed to its directory path. A route that 404s there 404s here.
+
+`tsx`, not `node --experimental-strip-types`: the `api/` modules use extensionless relative
+imports (correctly — Vercel requires it) and Node's ESM resolver will not resolve those.
+
 ### Live results (3 Oct 2026, local `.env.local`)
-**Both providers verified end to end.**
+**Both providers verified end to end, through the real HTTP handlers.**
 
 - **SAM 3.** Request accepted, pixel point prompt placed, 1 mask at score 0.803, fetched from
   fal's CDN, decoded and measured at 8,111 px — against ~8,090 px of ellipse geometry in the
@@ -371,6 +384,36 @@ this fallback chain, so it is flagged rather than quietly built.
   decode path end to end. Cold-start on `/health` measured at 1.4 s warm, 12.5–13.4 s cold.
 - `npm run smoke:live` — **15/15**, unchanged: the VLM, engine, report cage and Supabase
   round-trip are unaffected by any of this.
+
+**The whole pipeline, over HTTP, against the real handlers** (`npm run dev:api`, then
+`POST /api/v1/assessments/run`). Two runs, both complete:
+
+| step | status | ms | note |
+|---|---|---|---|
+| segment | ok | 2.3–2.4 s | `fusegnet` **after 1 other provider** — the fallback path |
+| tissue | ok | 1.5–1.9 s | `maskSource: model`, `maskProvider: fusegnet`, 8,840 px |
+| vlm | ok | 8.2–9.4 s | `google/gemini-2.5-flash` |
+| evaluate | ok | 0 ms | pathway 22, no gates, confidence high |
+| report | ok | 36–39 s | `source: llm`, `openai/gpt-5` |
+
+And the audit row in Postgres now carries both fields:
+
+```json
+"models": { "vlm": "google/gemini-2.5-flash", "llm": "openai/gpt-5",
+            "segmentation": "fusegnet-effb7-pscse",
+            "segmentationProvider": "fusegnet" }
+```
+
+versus an older row reading `"segmentation": "meta/sam-2"` with no provider at all. `/api/segment`
+and `/api/v1/assessments/segment` both 200 with the same outcome, so the granular route and the
+orchestrator genuinely share one implementation.
+
+**`MolnlyckeInputs` is typed `boolean`, and a caller sending the string `'no'` gets the trigger
+it meant to clear** — `'no'` is truthy, so a first probe payload produced spurious
+`probe_to_bone` and `diabetes_tbpi` referrals. The engine is right and the payload was wrong,
+and the failure direction is safe (extra referrals, never fewer), but it is a live instance of
+MW-12 in `docs/SECURITY_AUDIT.md` ("no request-body validation on ingress"): a Zod schema on
+the way in would have rejected it. Worth fixing when MW-12 is.
 
 **The finding that matters more than either pass — FUSegNet has no abstain.** On the synthetic
 probe image, which contains an ellipse and no wound:
@@ -396,10 +439,12 @@ a wound, and would have done so on a photo of a carpet. So:
   the wire format, the decode path and the plausibility gate — it cannot say anything about
   boundary *quality*. `npm run check:segmentation --image=<consented photo>` is the first
   real look, and the golden eval set is the actual answer.
-- ⚠️ **Nothing is set on Vercel yet.** `FAL_KEY`, `FUSEGNET_MODAL_URL` and
-  `FUSEGNET_AUTH_TOKEN` are local-only, so the deployment currently has **no** boundary
-  provider at all (`REPLICATE_API_TOKEN` is still there and nothing reads it). Production
-  **and** Preview, then redeploy — Vercel binds env vars at deploy time.
+- ⚠️ **The credentials are on Vercel but the CODE is not.** As of 3 Oct 2026 these 8 commits
+  are unpushed, so `https://mendwise.vercel.app/api/v1/assessments/health` still answers with
+  the **old** shape — no `segmentation` block, and `REPLICATE_API_TOKEN: false` giving
+  `segmentation: false`. Production therefore has **no boundary provider at all** and falls
+  back to the on-device HSV mask on every assessment. Push and redeploy; then
+  `segmentation.active` should read `sam3`.
 - **FUSegNet is a foot-ulcer model with no abstain**, which is why it sits second. The golden
   eval set is what should settle the order, not the reasoning above.
 - Latency is sampled, not measured: SAM 3 1.0–3.5 s with a 19.9 s outlier; FUSegNet ~2.1 s
