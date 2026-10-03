@@ -35,7 +35,9 @@ Read both before non-trivial work. This is a **research prototype — not a medi
   - `npx vercel env pull` — writes `.env.local` (OIDC token included). Gitignored.
   - `npx vercel dev` — Expo web build + `/api` functions on **one origin**, which is the faithful local test (no CORS, real routing). **Two traps, both of which make a working build look broken:**
     1. It injects the project's **Development** environment, and every var here is on Production/Preview only — so the functions start up with `segmentation: false`, `store: false` and the `/docs` gate reporting `reason=unconfigured`. Export `.env.local` into the process instead: `set -a; . ./.env.local; set +a; npx vercel dev`.
-    2. `EXPO_PUBLIC_ASSESSMENT_V2` is **not in `.env.local`**, so the flag defaults OFF and `segmentWoundUri()` returns `null` before it ever calls the API — the app silently runs the old HSV-only flow. Prefix the command with `EXPO_PUBLIC_ASSESSMENT_V2=true`.
+    2. `EXPO_PUBLIC_ASSESSMENT_V2` must be set or the flag defaults OFF and `segmentWoundUri()` returns `null` before it ever calls the API — the app silently runs the old HSV-only flow. It belongs in `.env.local`.
+- **Metro caches inlined `EXPO_PUBLIC_*` values, and this is the worst trap of the three.** The value is folded into the bundle at build time and the transform is cached, so setting the var — in `.env.local` *or* the environment — changes nothing on the next build. A stale bundle is indistinguishable from a correct one. After changing any `EXPO_PUBLIC_*` var: `npx expo export -p web --output-dir dist --clear`. `vercel dev` runs `expo export` **without** `--clear`, so it never picks such a change up by itself.
+- **Verify the flag in the artefact, not the config.** `grep` the served bundle: `new Set(['true','1','yes','on']).has("true"...)` is on, `has(''...)` is off. Checking that the env var is set proves nothing.
   - `npx vercel deploy` / `--prod`, `npx vercel logs <url>`.
 
 ## Known production behaviour, not a local artefact

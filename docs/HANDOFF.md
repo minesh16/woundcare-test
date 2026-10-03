@@ -369,10 +369,20 @@ on one origin. But:
    `segmentation: false`, `store: false` and the `/docs` gate answering
    `reason=unconfigured` — a configuration artefact that looks exactly like broken code.
    Export the local env instead: `set -a; . ./.env.local; set +a; npx vercel dev`.
-2. **`EXPO_PUBLIC_ASSESSMENT_V2` is not in `.env.local`**, so `ASSESSMENT_V2` is false and
-   `segmentWoundUri()` returns `null` before it ever reaches the API. The app silently runs the
-   old HSV-only flow and segmentation appears to do nothing. Prefix with
-   `EXPO_PUBLIC_ASSESSMENT_V2=true`.
+2. **`EXPO_PUBLIC_ASSESSMENT_V2` must be set**, or `ASSESSMENT_V2` is false and
+   `segmentWoundUri()` returns `null` before it ever reaches the API — the app silently runs the
+   old HSV-only flow and segmentation appears to do nothing. It now lives in `.env.local`.
+3. **Metro caches the inlined value, and this one is the real trap.** `EXPO_PUBLIC_*` vars are
+   folded into the bundle at build time and the transform is cached, so setting the var changes
+   nothing on the next build — a stale bundle looks exactly like a correct one. It cost a wrong
+   claim in this file: "verified through `vercel dev` with both fixes applied" was true of the
+   API (curl against the endpoints) and **false of the client**, whose bundle still had
+   `has(''.trim()...)`. The fix is `npx expo export -p web --output-dir dist --clear`;
+   `vercel dev` runs `expo export` *without* `--clear`, so it will not do this for you.
+
+   **Check the artefact, not the config.** In the served bundle,
+   `new Set(['true','1','yes','on']).has("true"...)` is on and `has(''...)` is off. That the env
+   var is set proves nothing.
 
 With both applied, `GET /api/v1/assessments/health` locally reports
 `segmentation.active: "sam3"`, store true, and `/docs/` 302s to the gate *without*
