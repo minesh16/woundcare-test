@@ -49,4 +49,4 @@ Pure function of `EngineResult` + optional area / zone / tissue %. Uses `src/cop
 
 `buildReportSystemPrompt(termMap)` — the only copy of the report system prompt. `report.ts` and `scripts/smoke-live.mts` both import it so the test cannot accidentally exercise a paraphrase.
 
-<!-- docs-hook: last auto-checked against commit 83600ff on 2026-10-03 -->
+<!-- docs-hook: last auto-checked against commit 73f5378 on 2026-10-03 -->

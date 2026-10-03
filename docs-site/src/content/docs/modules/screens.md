@@ -16,10 +16,11 @@ Path: [`src/app/`](https://github.com/minesh16/woundcare-test/tree/main/src/app)
 | `location.tsx` | `/location` | Body diagram (`BodySelector`) — front/back, male/female, tappable regions + list fallback |
 | `questions.tsx` | `/questions` | Duration, exudate, pain, warmth, infection, perfusion; ABPI / diabetes behind clinician toggle |
 | `result.tsx` | `/result` | `assess(session)` + `ResultPanel`; save JSON; link to compare if V2 |
+| `review.tsx` | _new file — describe this row_ |
 <!-- docs-hook:auto:end:files -->
 
 Progress header numbers: capture/analyze = step 1, location = 2, questions = 3. Result uses `ResultPanel`.
 
 Zustand: [`src/store/sessionStore.ts`](https://github.com/minesh16/woundcare-test/blob/main/src/store/sessionStore.ts) — persisted session + last 10 saved reports. `setV2Run` will not overwrite a good V2 result with `null`.
 
-<!-- docs-hook: last auto-checked against commit 83600ff on 2026-10-03 -->
+<!-- docs-hook: last auto-checked against commit 73f5378 on 2026-10-03 -->

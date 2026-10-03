@@ -138,4 +138,4 @@ From `_controller.ts` — a state machine, not an agent:
 
 `maxDuration` for `run.ts` is **300 s in `vercel.json`**, not an `export const config` in the handler. Both segment routes are **180 s** there: two GPU backends at a 60 s timeout each, plus mask fetch and decode, do not fit in 60.
 
-<!-- docs-hook: last auto-checked against commit ea3f028 on 2026-10-03 -->
+<!-- docs-hook: last auto-checked against commit 73f5378 on 2026-10-03 -->

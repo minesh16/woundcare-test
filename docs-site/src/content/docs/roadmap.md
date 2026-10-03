@@ -42,26 +42,30 @@ Items under **Next** are not shipped. Do not document them as live capability. G
 From HANDOFF **NEXT**, in that order of emphasis:
 
 <!-- docs-hook:auto:start:next -->
-1. **Add `FAL_KEY`, `FUSEGNET_MODAL_URL` and `FUSEGNET_AUTH_TOKEN` to the Vercel project**
+1. **Reconcile the two engine results on `result.tsx`.** The screen states the on-device result
+   and runs the server pipeline beside it; they must not be able to disagree. Also: record *who*
+   approved a boundary, which needs MW-01 (authentication) — an approval with no approver is
+   weaker evidence than it looks.
+2. **Add `FAL_KEY`, `FUSEGNET_MODAL_URL` and `FUSEGNET_AUTH_TOKEN` to the Vercel project**
    (Production **and** Preview, server-side) and redeploy. Both providers are verified
    locally; the deployment has neither, so it is currently falling back to the on-device HSV
    mask on every assessment. `REPLICATE_API_TOKEN` can be deleted at the same time.
    Confirm with `GET /api/v1/assessments/health` → `segmentation.active`.
-2. **Golden eval set** (~20–50 clinician-labelled images, Fitzpatrick-balanced) + `scripts/eval.mts`
+3. **Golden eval set** (~20–50 clinician-labelled images, Fitzpatrick-balanced) + `scripts/eval.mts`
    reporting pathway accuracy, referral sensitivity and N/A rate. Highest-value remaining work —
    and now also the thing that settles whether FUSegNet or SAM 3 should lead the chain, which is
    a one-line `SEGMENTATION_PROVIDERS` change rather than a code change. FUSegNet is
    currently second because it is a foot-ulcer model; the eval set is what should move it.
-3. Apply the Supabase migration and set the two server-side env vars.
-4. Measure per-provider boundary latency end to end and tune the `*_TIMEOUT_MS` ceilings
+4. Apply the Supabase migration and set the two server-side env vars.
+5. Measure per-provider boundary latency end to end and tune the `*_TIMEOUT_MS` ceilings
    against what the chain actually costs. Then consider the **SAM 3 box → FUSegNet mask**
    refinement pass the Modal endpoint's `box` parameter was built for.
-5. `wound_timeline` UI + the "<40 % area reduction in 4 weeks" trigger from real history.
-6. ArUco detection (`pxPerCmFromMarkerSide` is ready). `_maskSelect.ts` is no longer
+6. `wound_timeline` UI + the "<40 % area reduction in 4 weeks" trigger from real history.
+7. ArUco detection (`pxPerCmFromMarkerSide` is ready). `_maskSelect.ts` is no longer
    load-bearing — FUSegNet returns one wound mask and SAM 3 usually returns one match — but
    it is still the disambiguator when SAM 3 finds several, so it stays until the eval set
    shows the chain never needs it.
-7. La Trobe ethics clearance before any real patient imagery.
+8. La Trobe ethics clearance before any real patient imagery.
 <!-- docs-hook:auto:end:next -->
 
 ## Known issues that are not "features"
@@ -75,4 +79,4 @@ These are carry-overs, not roadmap bets:
 - Pre-existing `app-tabs.web.tsx` `/explore` typecheck error
 - Depth remains `depthAssessed: false` everywhere (2D limitation by design)
 
-<!-- docs-hook: last auto-checked against commit 9fe8ec2 on 2026-10-03 -->
+<!-- docs-hook: last auto-checked against commit 73f5378 on 2026-10-03 -->

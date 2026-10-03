@@ -71,4 +71,4 @@ Replicate was a third boundary provider (SAM 2) and is **no longer used at all**
 
 **Desktop** = Chrome/Safari/Firefox on a laptop viewing the web build. Not a separately packaged app.
 
-<!-- docs-hook: last auto-checked against commit 9fe8ec2 on 2026-10-03 -->
+<!-- docs-hook: last auto-checked against commit 73f5378 on 2026-10-03 -->
