@@ -88,4 +88,4 @@ The probe image contains an ellipse and no wound. SAM 3 correctly returned **no 
 So `mean_prob` means "how sure the network is about the pixels it chose", **not** "is there a wound here". In this codebase it can only ever *downgrade* confidence — it can never establish that a boundary is real. That makes the plausibility gate load-bearing rather than defensive decoration, and it is a second independent argument for SAM 3 leading, alongside the foot-ulcer one.
 :::
 
-<!-- docs-hook: last auto-checked against commit 83600ff on 2026-10-03 -->
+<!-- docs-hook: last auto-checked against commit ea3f028 on 2026-10-03 -->

@@ -42,11 +42,11 @@ Items under **Next** are not shipped. Do not document them as live capability. G
 From HANDOFF **NEXT**, in that order of emphasis:
 
 <!-- docs-hook:auto:start:next -->
-1. **Set `FUSEGNET_AUTH_TOKEN` and re-run `npm run check:segmentation`.** SAM 3 is verified
-   end to end; FUSegNet's `/segment` returns `401 {"detail":"unauthorised"}` from its own
-   handler, so its inference and response shape are still unproven. Then add `FAL_KEY` +
-   `FUSEGNET_MODAL_URL` + the token to the Vercel project, Production **and** Preview, and
-   redeploy — Vercel binds env vars at deploy time.
+1. **Add `FAL_KEY`, `FUSEGNET_MODAL_URL` and `FUSEGNET_AUTH_TOKEN` to the Vercel project**
+   (Production **and** Preview, server-side) and redeploy. Both providers are verified
+   locally; the deployment has neither, so it is currently falling back to the on-device HSV
+   mask on every assessment. `REPLICATE_API_TOKEN` can be deleted at the same time.
+   Confirm with `GET /api/v1/assessments/health` → `segmentation.active`.
 2. **Golden eval set** (~20–50 clinician-labelled images, Fitzpatrick-balanced) + `scripts/eval.mts`
    reporting pathway accuracy, referral sensitivity and N/A rate. Highest-value remaining work —
    and now also the thing that settles whether FUSegNet or SAM 3 should lead the chain, which is
@@ -75,4 +75,4 @@ These are carry-overs, not roadmap bets:
 - Pre-existing `app-tabs.web.tsx` `/explore` typecheck error
 - Depth remains `depthAssessed: false` everywhere (2D limitation by design)
 
-<!-- docs-hook: last auto-checked against commit 83600ff on 2026-10-03 -->
+<!-- docs-hook: last auto-checked against commit ea3f028 on 2026-10-03 -->
