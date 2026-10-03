@@ -34,4 +34,4 @@ Behavioural deep-dive: [Decision engine](/docs/architecture/decision-engine/). T
 
 `types.ts` questionnaire exudate uses `none | moderate | heavy` (UI). The engine uses `low | moderate | high`. `toEngineInputs` maps `none → low`, `heavy → high`.
 
-<!-- docs-hook: last auto-checked against commit e8cef6a on 2026-10-03 -->
+<!-- docs-hook: last auto-checked against commit 83600ff on 2026-10-03 -->

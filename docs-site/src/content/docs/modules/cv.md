@@ -52,4 +52,4 @@ Epithelial is checked before slough/granulation so pale-pink new skin is not cou
 
 Server-side duplicates of the tissue math live in `api/analyze.ts`, `api/_tissueOps.ts`, and `api/v1/assessments/tissue.ts` so Vercel functions do not import Metro-only native modules.
 
-<!-- docs-hook: last auto-checked against commit e8cef6a on 2026-10-03 -->
+<!-- docs-hook: last auto-checked against commit 83600ff on 2026-10-03 -->

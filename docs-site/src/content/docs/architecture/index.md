@@ -131,4 +131,4 @@ The original demo flow (`capture → analyze → location → questions → resu
 
 The V2 namespace adds server-side boundary segmentation, mask-restricted tissue, VLM, report LLM, SSE, persistence, and the comparison arm. Callers in [`src/assessment/client.ts`](https://github.com/minesh16/woundcare-test/blob/main/src/assessment/client.ts) return `null` when the flag is off or the network fails, so a missing server never breaks the demo.
 
-<!-- docs-hook: last auto-checked against commit e8cef6a on 2026-10-03 -->
+<!-- docs-hook: last auto-checked against commit 83600ff on 2026-10-03 -->

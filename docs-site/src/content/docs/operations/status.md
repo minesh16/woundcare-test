@@ -127,4 +127,4 @@ Client (inlinable): `EXPO_PUBLIC_ASSESSMENT_V2`, `EXPO_PUBLIC_API_BASE`, `EXPO_P
 
 `npm run typecheck` is clean except a pre-existing, unrelated error in `src/components/app-tabs.web.tsx` (stale `/explore` route). Do not "fix" it as part of an unrelated change unless you mean to delete that dead web tab. Deployed request/response wrappers are covered by typecheck only — Node type-stripping cannot load `api/` without `.ts` extensions, so `smoke:live` exercises cores, not the HTTP handlers. Hit them once deployed.
 
-<!-- docs-hook: last auto-checked against commit e8cef6a on 2026-10-03 -->
+<!-- docs-hook: last auto-checked against commit 83600ff on 2026-10-03 -->

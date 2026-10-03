@@ -71,4 +71,4 @@ SAM 3 end to end: request accepted, pixel point prompt placed, one mask at score
 
 FUSegNet: `/health` 200 with the model loaded, `/segment` reached — but `401 {"detail":"unauthorised"}` from the handler's own check. It needs `FUSEGNET_AUTH_TOKEN`; its inference and response shape are not yet proven.
 
-<!-- docs-hook: last auto-checked against commit e8cef6a on 2026-10-03 -->
+<!-- docs-hook: last auto-checked against commit 83600ff on 2026-10-03 -->

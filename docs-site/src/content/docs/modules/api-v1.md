@@ -47,4 +47,4 @@ The build spec puts `wound_area_cm2` and `calibration` in this response. They ar
 1. Service-role key never leaves the server. Never `EXPO_PUBLIC_SUPABASE_*` — Expo inlines those into the client bundle, web included.
 2. DB is never on the critical path. `isStoreConfigured()` requires **both** `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. Production currently has the key but not the URL.
 
-<!-- docs-hook: last auto-checked against commit e8cef6a on 2026-10-03 -->
+<!-- docs-hook: last auto-checked against commit 83600ff on 2026-10-03 -->
