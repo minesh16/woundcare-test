@@ -89,7 +89,7 @@ export default function CaptureScreen() {
             <Text style={styles.toggleTitle}>Include 20c coin for scale</Text>
             <Text style={styles.toggleHint}>Place a coin beside the wound in the photo.</Text>
           </View>
-          <Switch value={includeCoin} onValueChange={setIncludeCoin} trackColor={{ true: colors.primary }} />
+          <Switch value={includeCoin} onValueChange={setIncludeCoin} trackColor={{ true: colors.primary }} thumbColor={colors.white} />
         </View>
 
         {/* Research log (spec §4.1): decides whether outline images may be kept

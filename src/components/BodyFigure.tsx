@@ -11,7 +11,7 @@ import {
   type BodySex,
 } from '@/constants/bodyFigure';
 import { BodyZone } from '@/decision/types';
-import { colors, palette } from '@/theme';
+import { colors, fonts, palette } from '@/theme';
 
 type BodyFigureProps = {
   side: BodySide;
@@ -120,7 +120,7 @@ export function BodyFigure({ side, sex, selectedZone, onSelect, maxWidth }: Body
           x={glyphs.left[0]}
           y={glyphs.left[1]}
           fontSize={17}
-          fontWeight="700"
+          fontFamily={fonts.bodyBold}
           textAnchor="middle"
           fill={colors.textSecondary}>
           L
@@ -129,7 +129,7 @@ export function BodyFigure({ side, sex, selectedZone, onSelect, maxWidth }: Body
           x={glyphs.right[0]}
           y={glyphs.right[1]}
           fontSize={17}
-          fontWeight="700"
+          fontFamily={fonts.bodyBold}
           textAnchor="middle"
           fill={colors.textSecondary}>
           R
