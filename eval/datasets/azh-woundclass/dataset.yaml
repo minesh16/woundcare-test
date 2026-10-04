@@ -1,0 +1,53 @@
+# Onboarded 2026-10-04 following .cursor/rules/eval-dataset-onboarding.mdc.
+# Downloaded as the GitHub archive of uwm-bigdata/wound_classification (commit 57a5e88, 2026-03-30).
+# The repo ships dataset/"original images.zip" (538 full photos in D/P/S/V class folders) and
+# dataset/ROI.zip (738 cropped patches: D/P/S/V wound crops plus BG and N). NOT data/Dataset.rar as
+# the build spec says — recorded in eval/NOTES.md. Both zips are extracted under
+# $EVAL_DATA_DIR/azh-woundclass/ as "original images/" and "ROI/".
+#
+# What is ingested: the full photos (what the app actually receives), plus the ROI set's BG
+# (background) and N (normal skin) patches as real non-wound negatives. The ROI wound crops are
+# excluded — they are cut from the same photos (near-duplicates) and a frame-filling crop is not
+# an input the app ever sees.
+id: azh-woundclass
+name: AZH wound classification dataset (UWM BigData Lab / AZH Wound and Vascular Center)
+version: "2021"
+source_url: https://github.com/uwm-bigdata/wound_classification/tree/master/dataset
+access: direct_download
+licence: >-
+  None stated. Checked https://github.com/uwm-bigdata/wound_classification (no LICENSE file;
+  GitHub reports no licence) and its README on 2026-10-04. Cite: Rostami et al., "Multiclass Wound
+  Image Classification using an Ensemble Deep CNN-based Classifier", Comput Biol Med 134:104536 (2021).
+image_source: public_dataset
+# Same clinic as FUSeg and as the AZH Chronic Wound dataset FUSegNet was trained on. Whether these
+# exact images were in FUSegNet's training set is not stated; treated as in-distribution (§14.9).
+known_training_use: [fusegnet]
+root: azh-woundclass
+adapter: classFolders
+splits:
+  photo: original images
+  roi: ROI
+options:
+  images: "{split}"
+  label_field: woundType
+exclude:
+  - "ROI/D/**"
+  - "ROI/P/**"
+  - "ROI/S/**"
+  - "ROI/V/**"
+defaults:
+  woundPresent: true
+  # A US clinic dataset contains no Australian 20c coin, so any detected "coin" is a false detection.
+  markerPresent: false
+  provenance: { woundType: expert, markerPresent: derived }
+labelMap:
+  woundType:
+    # Diabetic ulcers are foot wounds; the location is an assumption (it drives FUSegNet's foot trigger).
+    D: { woundType: diabetic_foot, bodyZone: foot_left }
+    P: pressure
+    S: surgical
+    V: venous
+    N: { woundPresent: false }
+    BG: { woundPresent: false }
+strata: [split]
+sample_weight: 1.0

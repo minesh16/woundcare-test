@@ -1,0 +1,11 @@
+# MendWise eval harness — acceptance gates (spec §14.10). Team-agreed starting points; agree them
+# before quoting any PASS/FAIL (§26). Each gate: PASS | FAIL | INSUFFICIENT_N (n < min_n) | NOT_RUN.
+# `metric` is <area>.<metric>; `scope` defaults to `overall`.
+gates:
+  urgent_referral_sensitivity: { metric: engine.urgent_referral_sensitivity, op: ">=", value: 0.95, min_n: 20 }
+  unsafe_confident_rate:       { metric: engine.unsafe_confident_rate,       op: "<=", value: 0.02, min_n: 50 }
+  dice_auto_generalisation:    { metric: seg.dice.mean, scope: "in_distribution=false", op: ">=", value: 0.80, min_n: 100 }
+  coin_sensitivity:            { metric: meas.coin_sensitivity,              op: ">=", value: 0.90, min_n: 20 }
+  area_error_median:           { metric: meas.area_abs_pct_err.median,       op: "<=", value: 15, min_n: 20 }
+  vlm_schema_violations:       { metric: vlm.schema_violation_rate,          op: "==", value: 0, min_n: 1 }
+  negatives_fp_rate:           { metric: seg.negatives_fp_rate,              op: "<=", value: 0.10, min_n: 30 }

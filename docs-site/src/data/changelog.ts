@@ -1,7 +1,13 @@
 /** Docs-site version log. App capability lives on /operations/status/, not here. */
-export const docsVersion = '0.3.2';
+export const docsVersion = '0.4.0';
 
 export const changelog: { date: string; version: string; change: string }[] = [
+	{
+		date: '2026-10-05',
+		version: '0.4.0',
+		change:
+			'New Evaluation section: results of the first public-data evaluation (1,160 photos, 95% CIs) and what they mean for the app. Outline Dice 0.75 on unseen data (0.68 end to end without FUSegNet), so the review step is load-bearing; the FUSegNet fallback nearly doubles false outlines on non-wound photos; the coin detector reports a coin on 23% of coin-free photos; dominant-tissue accuracy is no better than always answering slough.',
+	},
 	{
 		date: '2026-10-03',
 		version: '0.3.2',

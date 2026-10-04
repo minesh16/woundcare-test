@@ -1,0 +1,252 @@
+---
+title: Public-data evaluation
+description: Measured performance of the MendWise pipeline on 1,160 public wound photos, with 95% confidence intervals, what it means for the app, and how to quote it.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import CiPlot from '../../../components/CiPlot.astro';
+import StatusChip from '../../../components/StatusChip.astro';
+
+<Aside type="caution" title="Research prototype, not a medical device">
+These are model-draft results on public photos, before any clinician review. Quote a number only with the run id `run-20261004-2052-full1` and the caveats at the end of this page.
+</Aside>
+
+We ran the current MendWise pipeline on five public image sets, automatically and with no clinician in the loop: wound outline, size reference, tissue mix and the decision engine. Every number is measured against ground truth, carries a 95% confidence interval, and can be reproduced from the run id with the [evaluation harness](https://github.com/minesh16/woundcare-test/tree/main/eval).
+
+| Run | Date | Images | Results | Rules version | App code |
+|---|---|---|---|---|---|
+| `run-20261004-2052-full1` | 4 Oct 2026 | 1,160 from 5 datasets | 2,320, 0 failed | `cwcs-2024.1+recon.3` | `277c955` |
+
+## What it means for the app
+
+<div class="mw-verdict">
+
+### Wound outline
+
+<StatusChip tone="warn">Usable as a draft</StatusChip> The typical outline is good: **median Dice 0.87**, and 59% of drafts reach IoU ≥ 0.7. A minority fail badly, which pulls the mean to **0.68–0.75**, below the 0.80 target. The clinician review step (approve, adjust or redraw) is doing real work and has to stay.
+
+</div>
+<div class="mw-verdict">
+
+### Confidence label
+
+<StatusChip tone="risk">Doesn't flag bad drafts</StatusChip> "High" drafts are reliably good (mean IoU 0.81), but **"medium" (0.60) and "low" (0.63) are indistinguishable**, and about 70% of drafts are labelled "low". The label can't tell a reviewer which outlines need a closer look. FUSegNet's second-opinion agreement predicts a bad outline only weakly (AUROC 0.61).
+
+</div>
+<div class="mw-verdict">
+
+### FUSegNet fallback
+
+<StatusChip tone="warn">Trade-off to decide</StatusChip> When SAM 3 declines, FUSegNet steps in. That **raises Dice by 0.05** on real wounds, but **nearly doubles false outlines on non-wound images (17% → 31%)**. FUSegNet outlined a "wound" on all 28 non-wound images it was given. It cannot answer "no wound".
+
+</div>
+<div class="mw-verdict">
+
+### Coin size reference
+
+<StatusChip tone="risk">Fix before claiming size</StatusChip> On photos with no coin in them, the detector **found a "coin" 23% of the time** (a wall fixture, a fold of fabric). A false coin switches off the "no size reference" safety gate and produces confident-looking cm² areas. How accurately real coins are found and sized is still untested, because no public dataset has them.
+
+</div>
+<div class="mw-verdict">
+
+### Tissue mix
+
+<StatusChip tone="risk">Weakest link</StatusChip> Per-class tissue percentages are off by about **21 percentage points** (17 when given the true outline). The dominant tissue type, which drives the dressing pathway, is right **66% of the time, no better than always answering "slough" (67%)**. The clinician's tissue confirmation is essential. The skin-relative classifier is worse, so `TISSUE_RELATIVE` should stay off.
+
+</div>
+<div class="mw-verdict">
+
+### Decision engine
+
+<StatusChip tone="ok">Behaves safely</StatusChip> With only a photo to go on, the engine **withheld a dressing pathway on every image**, as designed: exudate and infection are unknown. Whether its pathways and urgent referrals are *correct* is untested, because no public dataset carries those labels.
+
+</div>
+<div class="mw-verdict">
+
+### Skin tone
+
+<StatusChip tone="na">No gap detected</StatusChip> Outline quality shows no gap across six skin-tone bands whose confidence interval excludes zero (largest gap 0.08). The bands come from an image-derived proxy, not a clinical skin-tone measure.
+
+</div>
+
+## Against the team's targets
+
+| Gate | Target | Measured [95% CI] | n | Status |
+|---|---|---|---|---|
+| Wound outline, Dice (unseen data) | ≥ 0.80 | 0.749 [0.718, 0.775] | 388 | <StatusChip tone="risk">Fail</StatusChip> |
+| False outlines on non-wound images | ≤ 10% | 31.2% [24.4, 38.9] | 154 | <StatusChip tone="risk">Fail</StatusChip> |
+| Coin found when present | ≥ 90% | — | 0 | <StatusChip tone="na">No data</StatusChip> |
+| Area error, median | ≤ 15% | — | 0 | <StatusChip tone="na">No data</StatusChip> |
+| Urgent-referral sensitivity | ≥ 95% | — | 0 | <StatusChip tone="na">Not run</StatusChip> |
+| Confident but wrong pathway | ≤ 2% | — | 0 | <StatusChip tone="na">Not run</StatusChip> |
+| Image-model schema violations | 0 | — | 0 | <StatusChip tone="na">Not run</StatusChip> |
+
+**Not run** means a photo-only run cannot produce the metric (it needs exudate, infection or referral labels). **No data** means no public dataset has coins or measured wound sizes. The thresholds are the spec's starting points (`eval/thresholds.yaml`) and still need team agreement.
+
+## How close the outline gets
+
+Dice measures overlap between the model's outline and an expert's: 1 is a perfect match, 0 is none. Each row is the mean with its 95% interval. "Chain" is the app's setup (SAM 3 first, FUSegNet as backup). "SAM 3 alone" removes the backup.
+
+<CiPlot
+	title="Dice (mean, 95% CI)"
+	min={0.4}
+	max={1}
+	ticks={[0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]}
+	target={0.8}
+	legend={[['Chain (app setup)', 'accent'], ['SAM 3 alone', 'alt']]}
+	rows={[
+		{ label: 'FUSeg 2021', sub: 'chain', mean: 0.767, lo: 0.739, hi: 0.794, n: 332 },
+		{ label: 'FUSeg 2021', sub: 'SAM 3 alone', mean: 0.726, lo: 0.694, hi: 0.757, n: 332, tone: 'alt' },
+		{ label: 'DFUTissue', sub: 'chain', mean: 0.598, lo: 0.529, hi: 0.661, n: 104 },
+		{ label: 'DFUTissue', sub: 'SAM 3 alone', mean: 0.529, lo: 0.46, hi: 0.597, n: 104, tone: 'alt' },
+		{ label: 'All expert-outlined', sub: 'chain', mean: 0.727, lo: 0.698, hi: 0.753, n: 436 },
+		{ label: 'All expert-outlined', sub: 'SAM 3 alone', mean: 0.679, lo: 0.649, hi: 0.708, n: 436, tone: 'alt' },
+		{ label: 'Gate scope', sub: 'unseen data only', mean: 0.749, lo: 0.718, hi: 0.775, n: 388 },
+	]}
+/>
+
+<Aside title="Which number to quote">
+The gate figure (0.749) leaves out the 48 images where FUSegNet drew the outline, because FUSegNet was trained on photos from the same clinic and its scores there are not a fair test. FUSegNet only steps in when SAM 3 declines, so this also leaves out the hardest images. The fair end-to-end figure without FUSegNet is **0.679 [0.649, 0.708]** on all 436 images with an expert outline.
+</Aside>
+
+### The confidence label
+
+<CiPlot
+	title="IoU by the app's confidence label"
+	min={0.4}
+	max={1}
+	ticks={[0.4, 0.6, 0.8, 1]}
+	digits={2}
+	rows={[
+		{ label: 'High', mean: 0.815, lo: 0.759, hi: 0.864, n: 41, tone: 'ok' },
+		{ label: 'Medium', mean: 0.6, lo: 0.536, hi: 0.663, n: 94, tone: 'warn' },
+		{ label: 'Low', mean: 0.626, lo: 0.592, hi: 0.659, n: 301, tone: 'risk' },
+	]}
+/>
+
+IoU is overlap divided by union. Only "high" separates. A SAM 3 score cut-off of about 0.79 would best separate good outlines (IoU ≥ 0.7) from the rest. That is close to the app's 0.80 band; the medium/low split adds little. An outline takes 6.6 s at the median and 10.8 s at the 90th percentile.
+
+## The FUSegNet backup: better outlines, more false alarms
+
+Paired comparison on the same 1,160 images (`run-20261004-2130-full1-sam3` is SAM 3 without the backup):
+
+| With the backup | Change | 95% CI / test | n |
+|---|---|---|---|
+| Outline quality (Dice) | **+0.048** | [+0.032, +0.064], paired bootstrap | 436 expert-outlined |
+| False outlines on non-wound images | **17% → 31%** | McNemar p < 0.0001 | 154 non-wound |
+
+In the app a clinician reviews every outline, so a false outline is a prompt to reject rather than a wrong answer. But it is the model suggesting a wound where there is none. Options for the team: keep FUSegNet as a second opinion only, or accept its fallback outline only when the plausibility checks pass by a wider margin.
+
+## False wounds and false coins
+
+<CiPlot
+	title="Non-wound images given a wound outline"
+	min={0}
+	max={1}
+	ticks={[0, 0.25, 0.5, 0.75, 1]}
+	target={0.1}
+	pct
+	legend={[['Chain (app setup)', 'accent'], ['SAM 3 alone', 'alt']]}
+	rows={[
+		{ label: 'All non-wound', sub: 'chain', mean: 0.312, lo: 0.244, hi: 0.389, n: 154 },
+		{ label: 'All non-wound', sub: 'SAM 3 alone', mean: 0.169, lo: 0.118, hi: 0.236, n: 154, tone: 'alt' },
+		{ label: 'AZH skin / background', sub: 'chain', mean: 0.462, lo: 0.369, hi: 0.557, n: 104 },
+		{ label: 'When FUSegNet drew it', sub: 'chain', mean: 1, lo: 0.879, hi: 1, n: 28, tone: 'risk' },
+	]}
+/>
+
+<CiPlot
+	title="Coin-free photos where a coin was reported"
+	min={0}
+	max={0.5}
+	ticks={[0, 0.1, 0.2, 0.3, 0.4, 0.5]}
+	pct
+	rows={[
+		{ label: 'All coin-free', mean: 0.229, lo: 0.204, hi: 0.257, n: 960, tone: 'risk' },
+		{ label: 'FUSeg 2021', mean: 0.345, lo: 0.3, hi: 0.393, n: 400, tone: 'risk' },
+		{ label: 'AZH', mean: 0.165, lo: 0.132, hi: 0.205, n: 400, tone: 'risk' },
+		{ label: 'DFUTissue', mean: 0.145, lo: 0.092, hi: 0.223, n: 110, tone: 'risk' },
+		{ label: 'Synthetic skin', mean: 0, lo: 0, hi: 0.071, n: 50, tone: 'muted' },
+	]}
+/>
+
+The coin result matters most. A reported coin switches off the "no size reference" gate, so 23% of coin-free photos would have been sized and passed on as if measured. In the app the clinician sees the circled object and can reject it. The detector itself (`chooseCoin` in `api/_coin.ts`) needs a stricter check, such as colour uniformity inside the disc or a size prior, calibrated on these negatives.
+
+## Tissue percentages and the dominant type
+
+On DFUTissue, 110 expert-labelled diabetic foot ulcers. The dataset labels granulation, fibrin (slough) and callus only.
+
+<CiPlot
+	title="Tissue % error, percentage points"
+	min={0}
+	max={35}
+	ticks={[0, 10, 20, 30]}
+	digits={1}
+	unit=" pp"
+	legend={[['Standard classifier', 'accent'], ['Skin-relative', 'alt']]}
+	rows={[
+		{ label: 'Model outline', sub: 'standard', mean: 20.8, lo: 17.3, hi: 24.2, n: 109 },
+		{ label: 'Expert outline', sub: 'standard', mean: 17.2, lo: 14.3, hi: 20.2, n: 104 },
+		{ label: 'Model outline', sub: 'skin-relative', mean: 25.6, lo: 21.9, hi: 29.2, n: 109, tone: 'alt' },
+		{ label: 'Expert outline', sub: 'skin-relative', mean: 23.9, lo: 20.7, hi: 27.2, n: 104, tone: 'alt' },
+	]}
+/>
+
+| Expert says | Model: slough | Model: granulating | Other |
+|---|---|---|---|
+| Slough (70) | **48** | 21 | 1 |
+| Granulating (34) | 13 | **20** | 1 |
+
+Dominant-tissue accuracy is 66% [56, 74] with Cohen's κ 0.28, on the model outline. Always answering "slough" would score 67%.
+
+## Outline quality across skin tones
+
+<CiPlot
+	title="Dice by skin-tone band (chain)"
+	min={0.5}
+	max={0.9}
+	ticks={[0.5, 0.6, 0.7, 0.8, 0.9]}
+	rows={[
+		{ label: 'Very light', sub: 'ITA > 55°', mean: 0.716, lo: 0.644, hi: 0.779, n: 89 },
+		{ label: 'Light', sub: '41–55°', mean: 0.759, lo: 0.709, hi: 0.807, n: 90 },
+		{ label: 'Intermediate', sub: '28–41°', mean: 0.756, lo: 0.696, hi: 0.813, n: 63 },
+		{ label: 'Tan', sub: '10–28°', mean: 0.761, lo: 0.685, hi: 0.83, n: 49 },
+		{ label: 'Brown', sub: '−30–10°', mean: 0.695, lo: 0.623, hi: 0.762, n: 83 },
+		{ label: 'Dark', sub: '< −30°', mean: 0.68, lo: 0.594, hi: 0.758, n: 62 },
+	]}
+/>
+
+The largest gap between bands is 0.081 [−0.033, 0.198], and its interval includes zero. One tissue result does exclude zero: dominant-tissue accuracy was 84% in the "light" band vs 47% in "intermediate", on about 19 images each from a single dataset. It is a lead to check on more data, not a finding. Skin tone here is estimated from the skin around the wound in each photo. That is a proxy affected by lighting, not a clinical measure such as the Monk scale.
+
+## How this was measured
+
+- Each photo went through the app's own code in-process: segmentation (SAM 3 on fal.ai, FUSegNet on Modal, colour-threshold fallback), coin and size measurement, tissue classification, and the deterministic CWCS / Mölnlycke engine. The harness imports these functions unchanged. A parity check confirms it reaches the same engine result as the app's own orchestrator.
+- The model's first outline was used as returned, with no clinician step. In the app a clinician approves or corrects it, so these numbers describe the draft, not the final assessment.
+- Proportions use Wilson intervals. Means use a seeded bootstrap with 2,000 resamples. Paired comparisons use McNemar's exact test and a paired bootstrap.
+- Metrics where FUSegNet drew the outline on data from its own training clinic are reported separately and never quoted as generalisation.
+
+| Dataset | In run | Used for | Notes |
+|---|---|---|---|
+| FUSeg 2021 (AZH Wound Center) | 400 | Outline vs expert masks | Same clinic as FUSegNet's training data |
+| AZH wound classification | 400 | Wound types, real non-wound patches | Same clinic |
+| Medetec wound database | 200 | 16 wound categories, behaviour only | No outlines available |
+| DFUTissue | 110 | Tissue mix vs expert labels | Same clinic |
+| Synthetic skin | 50 | Non-wound images | Generated; an easy negative (0% false outlines) |
+
+<Aside type="note" title="Not covered by public data">
+Exudate, infection, ischaemia and referral labels; photos with a coin or a measured wound size; clinician review. WoundcareVQA, the one public source of exudate and infection labels, requires registration and was excluded. These need the team's own labelled photos, which can be onboarded through the same harness (see `eval/README.md`).
+</Aside>
+
+## Quoting these numbers
+
+- Cite the run id with any number, and say it is public-data, model-draft performance before clinician review.
+- Fair claims: segmentation measured at scale with confidence intervals; median outline overlap 0.87; the engine withholds a pathway when inputs are missing; three safety issues found and quantified.
+- Not supported yet: accuracy of dressing recommendations or referrals, coin-based wound sizing, and automated tissue classification.
+
+```text
+MendWise eval harness, run-20261004-2052-full1 (4 Oct 2026), 1,160 public images; SAM 3 → FUSegNet chain,
+image-only policy; 95% CIs. FUSegNet metrics on AZH-clinic data are in-distribution and excluded from
+generalisation figures.
+```
+
+Figures are transcribed from that run's `findings.json` and `metrics.csv` (in the operator's `EVAL_OUT_DIR`); the team's findings for each issue are in [`eval/NOTES.md`](https://github.com/minesh16/woundcare-test/blob/main/eval/NOTES.md). Estimated provider cost for the two full runs was about $6.20.

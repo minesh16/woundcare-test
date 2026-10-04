@@ -1,0 +1,34 @@
+# MendWise eval harness — provider cost rates. Last checked: 2026-10-04.
+# Estimates only. The provider dashboards are the source of truth for billing.
+currency: USD
+
+providers:
+  sam3:                              # fal.ai, fal-ai/sam-3/image (api/_sam3.ts)
+    billing: per_request
+    usd_per_request: 0.005
+    source: https://fal.ai/models/fal-ai/sam-3/image
+    checked: 2026-10-04
+
+  fusegnet:                          # Modal, CPU container (~/Agents/fusegnet-modal/fusegnet_app.py: cpu=4.0, memory=8192)
+    billing: per_second
+    cpu_cores: 4
+    memory_gib: 8
+    usd_per_core_second: 0.0000131
+    usd_per_gib_second: 0.00000222
+    # derived container rate: 4 × 0.0000131 + 8 × 0.00000222 = 0.00007016 USD/s ≈ 0.25 USD/h
+    est_seconds_per_call: 5          # PLACEHOLDER: replace with the measured p50 of FUSegNet `latency_ms` after the smoke run
+    cold_start_seconds: 13           # measured on /health (docs/HANDOFF.md: 12.5–13.4 s cold)
+    scaledown_window_seconds: 300    # container stays warm 5 min after the last request
+    region_multiplier: 1.0           # set to 1.5–1.75 if the Modal app is ever pinned to a region
+    source: https://modal.com/pricing
+    checked: 2026-10-04
+    note: The Modal Starter plan's monthly credit may cover this entirely. Check the Modal dashboard.
+
+  gateway:                           # Vercel AI Gateway, only with --with-vlm / --with-report / --with-baseline
+    billing: per_call_estimate
+    usd_per_vlm_call: null           # fill before the first frontier run (free-tier models may cost $0)
+    usd_per_llm_call: null
+
+budget:
+  warn_usd: 10                       # print a warning above this
+  hard_stop_usd: 40                  # refuse to start (and stop mid-run) above this unless --budget=<usd>

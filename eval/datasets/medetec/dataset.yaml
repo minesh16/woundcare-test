@@ -1,0 +1,56 @@
+# Onboarded 2026-10-04 following .cursor/rules/eval-dataset-onboarding.mdc.
+# Medetec publishes its images as per-category HTML pages, not an archive, so they are fetched by
+# eval/datasets/medetec/fetch.mts (1 request/s, resumable; robots.txt allows all) into
+# $EVAL_DATA_DIR/medetec/images/<category>/ with metadata.csv (file, category, caption, source_url).
+# No form, login or request is involved (§2.7). Captions are kept in rawLabels, not mapped.
+#
+# Category → woundType is APPROXIMATE (provenance: derived): Medetec groups by presentation, not by
+# aetiology. "foot-ulcers" are mostly diabetic/ischaemic (→ diabetic_foot), "leg-ulcer-images" mostly
+# venous (→ venous; some captions say arterial or mixed). Categories with no canonical type → other.
+# Medetec slides are not from the AZH clinic → NOT in-distribution for FUSegNet.
+# No wound masks: Medetec contributes wound-type coverage, segmentation behaviour (fallback /
+# implausible rates) and negatives-free ops numbers, not Dice. (A 160-image Medetec foot-ulcer subset
+# with masks exists in uwm-bigdata/wound-segmentation, but as 224-px crops that do not align with these
+# originals — see eval/NOTES.md.)
+id: medetec
+name: Medetec Wound Database (Stephen Thomas / Medetec, UK)
+version: "2014"
+source_url: https://www.medetec.co.uk/files/medetec-image-databases.html
+access: direct_download
+licence: >-
+  No licence document. The database page (checked 2026-10-04) describes "free stock images of all
+  types of open wounds" with the meta description "Copyright free images and stock pictures of open
+  wounds" and copyright "©Medetec". Used here for offline evaluation only; images are not redistributed.
+image_source: public_dataset
+known_training_use: []
+root: medetec
+adapter: tabular
+options:
+  table: metadata.csv
+  key_column: file
+  image_column: file
+fieldMap:
+  woundType: category
+labelMap:
+  woundType:
+    abdominal-wounds: { woundType: surgical, bodyZone: abdomen }
+    burns: burn
+    epidermolysis-bullosa: other
+    extravasation-wound-images: other
+    foot-ulcers: { woundType: diabetic_foot, bodyZone: foot_left }
+    haemangioma: other
+    leg-ulcer-images: { woundType: venous, bodyZone: lower_leg_left }
+    leg-ulcer-images-2: { woundType: venous, bodyZone: lower_leg_left }
+    malignant-wound-images: other
+    meningitis: other
+    miscellaneous: other
+    orthopaedic wounds: surgical
+    pilonidal-sinus: surgical
+    pressure-ulcer-images-a: pressure
+    pressure-ulcer-images-b: pressure
+    toes: { woundType: other, bodyZone: toes_left }
+defaults:
+  woundPresent: true
+  provenance: { woundType: derived, bodyZone: derived }
+strata: [category]
+sample_weight: 1.0

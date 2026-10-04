@@ -65,6 +65,10 @@ export default defineConfig({
 					items: [{ autogenerate: { directory: 'modules' } }],
 				},
 				{
+					label: 'Evaluation',
+					items: [{ label: 'Public-data evaluation', slug: 'evaluation/findings' }],
+				},
+				{
 					label: 'Operations',
 					items: [
 						{ label: 'Production status', slug: 'operations/status' },

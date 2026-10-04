@@ -1,0 +1,39 @@
+# Onboarded 2026-10-04 following .cursor/rules/eval-dataset-onboarding.mdc.
+# Downloaded as the GitHub archive of uwm-bigdata/wound-segmentation (commit 42a272d, 2026-03-30);
+# only data/Foot Ulcer Segmentation Challenge/ was kept, at $EVAL_DATA_DIR/fuseg2021/.
+# Profile: 1,210 PNG images, all 512×512; binary 0/255 masks for train (810) and validation (200);
+# test (200) has no labels in the repo and ingests without a woundMaskPath. 32 exact duplicate images.
+id: fuseg2021
+name: Foot Ulcer Segmentation Challenge 2021 (FUSeg, UWM BigData Lab / AZH Wound Center)
+version: "2021"
+source_url: https://github.com/uwm-bigdata/wound-segmentation/tree/master/data/Foot%20Ulcer%20Segmentation%20Challenge
+access: direct_download
+licence: >-
+  None stated. Checked https://github.com/uwm-bigdata/wound-segmentation (no LICENSE file; GitHub
+  reports no licence) and the dataset README on 2026-10-04. The README states the images are
+  de-identified per HIPAA. Cite: Wang et al., FUSeg 2021 (MICCAI), https://fusc.grand-challenge.org/FUSeg-2021/.
+image_source: public_dataset
+# The deployed FUSegNet weights ("efficientnet-b7, pscse") were trained on the AZH Chronic Wound
+# dataset (github.com/mrinal054/FUSegNet), from the same clinic as FUSeg → in-distribution (§14.9).
+known_training_use: [fusegnet]
+root: fuseg2021
+adapter: folderMasks
+splits:
+  train: train
+  validation: validation
+  test: test
+options:
+  images: "{split}/images"
+  masks: "{split}/labels"
+  mask_threshold: 127
+defaults:
+  bodyZone: foot_left
+  woundPresent: true
+  woundType: diabetic_foot
+  # A US clinic dataset contains no Australian 20c coin, so any detected "coin" is a false detection —
+  # this makes the coin false-detection rate measurable (the smoke run found ~30%; eval/NOTES.md).
+  markerPresent: false
+  provenance: { woundMaskPath: expert, woundType: derived, bodyZone: derived, markerPresent: derived }
+labelMap: {}
+strata: [split]
+sample_weight: 1.0

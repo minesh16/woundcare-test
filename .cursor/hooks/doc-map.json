@@ -84,6 +84,12 @@
         "docs-site/src/content/docs/stack/platforms.md",
         "docs-site/src/content/docs/stack/tech-stack.md"
       ]
+    },
+    {
+      "glob": "eval/**",
+      "pages": [
+        "docs-site/src/content/docs/evaluation/findings.mdx"
+      ]
     }
   ]
 }

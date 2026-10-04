@@ -1,0 +1,9 @@
+---
+/** A small status pill (compliant / warning / risk / neutral), from the design system's status scale. */
+interface Props {
+	tone: 'ok' | 'warn' | 'risk' | 'na';
+}
+const { tone } = Astro.props;
+---
+
+<span class="mw-chip" data-tone={tone}><slot /></span>

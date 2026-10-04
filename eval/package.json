@@ -1,0 +1,8 @@
+{
+  "name": "mendwise-eval",
+  "private": true,
+  "description": "MendWise evaluation harness. Run with `npx tsx eval/cli.mts …` from the repo root (docs/MendWise_Eval_Harness_Build_Spec.md).",
+  "dependencies": {
+    "yaml": "^2.9.1"
+  }
+}

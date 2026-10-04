@@ -1,0 +1,89 @@
+---
+/**
+ * A confidence-interval dot plot: one row per estimate (dot = mean, bar = 95% CI),
+ * on a shared linear scale, with an optional dashed target line. Rendered at build
+ * time — no client script — and coloured from the docs theme tokens, so it follows
+ * Starlight's light/dark toggle.
+ */
+type Tone = 'accent' | 'alt' | 'ok' | 'warn' | 'risk' | 'muted';
+interface Row {
+	label: string;
+	sub?: string;
+	mean: number;
+	lo: number;
+	hi: number;
+	n: number;
+	tone?: Tone;
+}
+interface Props {
+	title: string;
+	min: number;
+	max: number;
+	ticks: number[];
+	rows: Row[];
+	target?: number;
+	pct?: boolean;
+	digits?: number;
+	unit?: string;
+	legend?: [string, Tone][];
+}
+const { title, min, max, ticks, rows, target, pct = false, digits = 3, unit = '', legend = [] } = Astro.props;
+const pos = (v: number) => `${(100 * (Math.min(max, Math.max(min, v)) - min)) / (max - min)}%`;
+const fmt = (v: number) => (pct ? `${(100 * v).toFixed(1)}%` : `${v.toFixed(digits)}${unit}`);
+const tick = (v: number) => (pct ? `${Math.round(100 * v)}%` : `${v}`);
+---
+
+<figure class="mw-ci" aria-label={title}>
+	<figcaption class="mw-ci__title">{title}</figcaption>
+	{
+		rows.map((r) => (
+			<div class="mw-ci__row">
+				<div class="mw-ci__label">
+					{r.label}
+					{r.sub && <small>{r.sub}</small>}
+				</div>
+				<div class="mw-ci__track" data-tone={r.tone ?? 'accent'}>
+					<span class="mw-ci__base" />
+					{target !== undefined && <span class="mw-ci__target" style={`left:${pos(target)}`} />}
+					<span class="mw-ci__bar" style={`left:${pos(r.lo)};width:calc(${pos(r.hi)} - ${pos(r.lo)})`} />
+					<span class="mw-ci__dot" style={`left:${pos(r.mean)}`} />
+				</div>
+				<div class="mw-ci__value">
+					{fmt(r.mean)}
+					<small>
+						[{fmt(r.lo)}, {fmt(r.hi)}] n={r.n}
+					</small>
+				</div>
+			</div>
+		))
+	}
+	<div class="mw-ci__axis">
+		<span />
+		<div class="mw-ci__ticks">
+			{
+				ticks.map((t) => (
+					<span style={`left:${pos(t)}`}>{tick(t)}</span>
+				))
+			}
+		</div>
+		<span />
+	</div>
+	{
+		(legend.length > 0 || target !== undefined) && (
+			<div class="mw-ci__legend">
+				{legend.map(([name, tone]) => (
+					<span>
+						<i data-tone={tone} />
+						{name}
+					</span>
+				))}
+				{target !== undefined && (
+					<span>
+						<i class="mw-ci__legend-target" />
+						target {tick(target)}
+					</span>
+				)}
+			</div>
+		)
+	}
+</figure>

@@ -1,0 +1,48 @@
+# Onboarded 2026-10-04 following .cursor/rules/eval-dataset-onboarding.mdc.
+# Downloaded as the GitHub archive of uwm-bigdata/DFUTissueSegNet (commit d2f6e72, 2026-03-30); only
+# DFUTissue/Labeled/ was kept (the ~600 unlabelled images are not ingested), at $EVAL_DATA_DIR/dfutissue/.
+# Profile: 110 labelled PNGs, 67–266 px (median 256), in Original/Images/{TrainVal,Test}; index masks in
+# Original/Annotations/ with values 0–3. palette_colorCode.txt: red = fibrin, green = granulation,
+# blue = callus; the per-value pixel shares match 1 = fibrin, 2 = granulation, 3 = callus exactly.
+# The "Padded" copies are the same images zero-padded to a square and are not ingested.
+#
+# Wound bed = granulation ∪ fibrin. Callus is hyperkeratotic skin AROUND a diabetic ulcer, not wound
+# bed, so it is kept as a tissue mask (→ other) but excluded from the derived wound mask and from the
+# tissue % (which is measured inside the wound bed). No necrotic or epithelial class is labelled.
+id: dfutissue
+name: DFUTissue — diabetic foot ulcer tissue segmentation (UWM BigData Lab / AZH Wound Center)
+version: "2024"
+source_url: https://github.com/uwm-bigdata/DFUTissueSegNet/tree/main/DFUTissue
+access: direct_download
+licence: >-
+  None stated. Checked https://github.com/uwm-bigdata/DFUTissueSegNet (no LICENSE file; GitHub reports
+  no licence) and its README / DFUTissue/Citation.txt on 2026-10-04. Cite: Dhar et al., "Wound Tissue
+  Segmentation in Diabetic Foot Ulcer Images Using Deep Learning: A Pilot Study", arXiv:2406.16012 (2024).
+image_source: public_dataset
+# AZH Wound Center images, like the AZH Chronic Wound data FUSegNet was trained on → in-distribution.
+known_training_use: [fusegnet]
+root: dfutissue
+adapter: folderMasks
+splits:
+  trainval: TrainVal
+  test: Test
+options:
+  images: "Labeled/Original/Images/{split}"
+  tissue_masks: "Labeled/Original/Annotations/{split}"
+  wound_from_tissue: [granulation, slough]
+tissueMaskMap:
+  "0": background
+  "1": slough        # fibrin
+  "2": granulation
+  "3": other         # callus
+tissueClassesLabelled: [granulation, slough, other]
+defaults:
+  woundPresent: true
+  woundType: diabetic_foot
+  bodyZone: foot_left
+  # A US clinic dataset contains no Australian 20c coin; any detected "coin" is a false detection.
+  markerPresent: false
+  provenance: { tissueMaskPaths: expert, woundType: derived, bodyZone: derived, markerPresent: derived }
+labelMap: {}
+strata: [split]
+sample_weight: 1.0

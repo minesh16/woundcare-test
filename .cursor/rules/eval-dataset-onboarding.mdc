@@ -1,0 +1,25 @@
+---
+description: How to onboard a new wound dataset into the MendWise eval harness
+globs: eval/datasets/**
+alwaysApply: false
+---
+
+# Onboarding a dataset into eval/
+
+Spec: docs/MendWise_Eval_Harness_Build_Spec.md (§6–§9, §23). Never modify app code (api/, src/, scripts/).
+
+1. **Access check first.** The dataset must download directly — no form, application, signed
+   agreement, approval email or login gate. If not, STOP, add it to eval/NOTES.md as "excluded:
+   not directly downloadable", and do nothing else.
+2. Record `source_url`, the licence text (or "none stated" + the URL you checked + date) in the manifest.
+3. Download into $EVAL_DATA_DIR/<id>/ (never into the repo or OneDrive).
+4. `npx tsx eval/cli.mts profile --dir=$EVAL_DATA_DIR/<id> --id=<id>`; read profile.json, the
+   draft manifest, 5–10 sample files, and the dataset's README/paper.
+5. Write eval/datasets/<id>/dataset.yaml: adapter, options, defaults, fieldMap, labelMap,
+   tissueMaskMap, tissueClassesLabelled, known_training_use, image_source: public_dataset.
+   Map onto the canonical enums in eval/src/vocab.ts; keep raw values in rawLabels.
+6. Only if YAML cannot express the format, write eval/datasets/<id>/adapter.ts (≤150 lines, comment why).
+7. `npx tsx eval/cli.mts ingest --dataset=<id> --dry-run` → fix until coverage shows zero unmapped
+   values (or each is in labelMap._ignore with a reason).
+8. `npx tsx eval/cli.mts ingest --dataset=<id>`; commit the manifest (and adapter) only — never data.
+9. If the dataset was used to train any model in the pipeline, list it in known_training_use.
