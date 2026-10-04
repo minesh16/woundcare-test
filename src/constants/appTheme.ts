@@ -1,18 +1,23 @@
+import { clinicalColors, colors, status } from '@/theme';
+
+/**
+ * @deprecated Transitional aliases over `@/theme` while screens migrate to the
+ * MendWise tokens. Use `colors` / `status` / `clinicalColors` from `@/theme`.
+ */
 export const AppColors = {
-  navy: '#0B2545',
-  teal: '#1B998B',
-  /** The wound edge drawn over the photo once segmentation has outlined it. */
-  woundEdge: '#FFFF00',
-  tealLight: '#E6F5F3',
-  white: '#FFFFFF',
-  background: '#F7F9FC',
-  card: '#FFFFFF',
-  border: '#D8E0EA',
-  text: '#102A43',
-  textSecondary: '#627D98',
-  danger: '#C0392B',
-  warning: '#D68910',
-  success: '#1B998B',
+  navy: colors.textPrimary,
+  teal: colors.primary,
+  woundEdge: clinicalColors.woundEdge,
+  tealLight: colors.primarySubtle,
+  white: colors.white,
+  background: colors.surfacePage,
+  card: colors.surfaceCard,
+  border: colors.border,
+  text: colors.textPrimary,
+  textSecondary: colors.textSecondary,
+  danger: status.risk.fg,
+  warning: status.warning.fg,
+  success: status.compliant.fg,
 };
 
 /**
