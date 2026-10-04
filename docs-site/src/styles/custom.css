@@ -1,25 +1,42 @@
-/* MendWise docs — navy / teal, diagram chrome, version log */
+/* MendWise docs — design-system tokens (Galaxy / Planetary blue, cream), diagram chrome, version log */
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap');
 
 :root {
-	--mw-navy: #0b2545;
-	--mw-teal: #0e7c7b;
-	--mw-teal-bright: #14b8a6;
+	--mw-galaxy: #081f5c;
+	--mw-planetary: #334eac;
+	--mw-primary-100: #e8f1ff;
+	--mw-primary-200: #d0e3ff;
+	--mw-primary-400: #95b6de;
+	--mw-cream: #fff9f0;
+	--mw-font-display: 'Space Grotesk', 'Manrope', -apple-system, sans-serif;
+	--sl-font: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 :root[data-theme='light'] {
-	--sl-color-accent-low: #e6f5f3;
-	--sl-color-accent: var(--mw-teal);
-	--sl-color-accent-high: var(--mw-navy);
+	--sl-color-accent-low: var(--mw-primary-100);
+	--sl-color-accent: var(--mw-planetary);
+	--sl-color-accent-high: var(--mw-galaxy);
+	/* Warm page; the nav and sidebar stay white so code blocks and the
+	   sidebar keep their contrast. */
+	--sl-color-bg: var(--mw-cream);
 }
 
 :root[data-theme='dark'] {
-	--sl-color-accent-low: #0b2f2e;
-	--sl-color-accent: var(--mw-teal-bright);
-	--sl-color-accent-high: #99f6e4;
+	--sl-color-accent-low: var(--mw-galaxy);
+	--sl-color-accent: var(--mw-primary-400);
+	--sl-color-accent-high: var(--mw-primary-200);
+}
+
+.site-title,
+.sl-markdown-content :is(h1, h2, h3),
+h1#_top {
+	font-family: var(--mw-font-display);
+	letter-spacing: -0.01em;
 }
 
 .site-title img {
-	border-radius: 0.4rem;
+	border-radius: 4px;
 }
 
 /* Sidebar: icon before each known href (Starlight 0.42 has no sidebar `icon` field). */
@@ -102,7 +119,7 @@ pre.mermaid.mw-diagram__source {
 .mw-diagram {
 	margin: 1.25rem 0;
 	border: 1px solid var(--sl-color-gray-5);
-	border-radius: 0.75rem;
+	border-radius: 6px;
 	background: var(--sl-color-gray-6);
 	overflow: hidden;
 	font-family: var(--sl-font);
@@ -128,7 +145,7 @@ pre.mermaid.mw-diagram__source {
 	height: 2rem;
 	padding: 0 0.55rem;
 	border: 1px solid var(--sl-color-gray-4);
-	border-radius: 0.4rem;
+	border-radius: 4px;
 	background: var(--sl-color-bg);
 	color: var(--sl-color-text);
 	font: inherit;
@@ -188,13 +205,13 @@ pre.mermaid.mw-diagram__source {
 	max-width: none;
 	padding: 0;
 	border: 1px solid var(--sl-color-gray-4);
-	border-radius: 0.85rem;
+	border-radius: 6px;
 	background: var(--sl-color-bg);
 	color: var(--sl-color-text);
 }
 
 .mw-diagram-dialog::backdrop {
-	background: rgb(11 37 69 / 0.72);
+	background: rgb(8 31 92 / 0.72);
 }
 
 .mw-diagram-dialog .mw-diagram {
