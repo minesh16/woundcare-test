@@ -6,7 +6,7 @@ import { DisclaimerFooter } from '@/components/DisclaimerFooter';
 import { OptionButton, QuestionCard } from '@/components/QuestionCard';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { ProgressHeader } from '@/components/ProgressHeader';
-import { AppColors } from '@/constants/appTheme';
+import { colors, fonts, radius, type } from '@/theme';
 import { isQuestionnaireComplete, useSessionStore } from '@/store/sessionStore';
 
 /** The Monk Skin Tone Scale's ten reference colours (Monk, 2019; Google, CC-BY 4.0). */
@@ -307,14 +307,14 @@ export default function QuestionsScreen() {
 
 const styles = StyleSheet.create({
   input: {
+    ...type.bodyLg,
     minHeight: 44,
     borderWidth: 1,
-    borderColor: AppColors.border,
-    borderRadius: 12,
+    borderColor: colors.borderDefault,
+    borderRadius: radius.md,
     paddingHorizontal: 14,
-    fontSize: 16,
-    color: AppColors.text,
-    backgroundColor: AppColors.white,
+    color: colors.textPrimary,
+    backgroundColor: colors.surfaceCard,
   },
   monkRow: {
     flexDirection: 'row',
@@ -331,16 +331,15 @@ const styles = StyleSheet.create({
     borderColor: 'transparent',
   },
   monkSwatchSelected: {
-    borderColor: AppColors.teal,
+    borderColor: colors.primary,
     transform: [{ scale: 1.1 }],
   },
   monkLabel: {
-    fontSize: 13,
-    fontWeight: '700',
+    ...type.dataStrong,
   },
   container: {
     flex: 1,
-    backgroundColor: AppColors.background,
+    backgroundColor: colors.surfacePage,
   },
   content: {
     padding: 20,
@@ -355,46 +354,47 @@ const styles = StyleSheet.create({
     minWidth: 44,
     paddingVertical: 10,
     paddingHorizontal: 12,
-    borderRadius: 10,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: AppColors.border,
-    backgroundColor: AppColors.background,
+    borderColor: colors.borderDefault,
+    backgroundColor: colors.surfaceCard,
     alignItems: 'center',
   },
   painChipSelected: {
-    borderColor: AppColors.teal,
-    backgroundColor: AppColors.tealLight,
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySubtle,
   },
   painChipText: {
+    ...type.dataStrong,
     fontSize: 15,
-    color: AppColors.text,
-    fontWeight: '600',
+    color: colors.textPrimary,
   },
   painChipTextSelected: {
-    color: AppColors.navy,
+    color: colors.primary,
   },
   toggle: {
     alignSelf: 'flex-start',
     marginTop: 10,
     paddingVertical: 8,
     paddingHorizontal: 14,
-    borderRadius: 999,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: AppColors.border,
+    borderColor: colors.borderDefault,
+    backgroundColor: colors.surfaceCard,
   },
   toggleText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: AppColors.textSecondary,
+    ...type.bodyMd,
+    fontFamily: fonts.bodySemiBold,
+    color: colors.textPrimary,
   },
   optionalHint: {
-    fontSize: 13,
-    color: AppColors.textSecondary,
+    ...type.bodySm,
+    color: colors.textSecondary,
   },
   optionalLabel: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: AppColors.text,
+    ...type.bodyMd,
+    fontFamily: fonts.bodyBold,
+    color: colors.textPrimary,
     marginTop: 4,
   },
   footer: {

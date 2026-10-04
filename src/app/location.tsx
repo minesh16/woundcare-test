@@ -5,7 +5,8 @@ import { BodySelector } from '@/components/BodySelector';
 import { DisclaimerFooter } from '@/components/DisclaimerFooter';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { ProgressHeader } from '@/components/ProgressHeader';
-import { AppColors, AppLayout } from '@/constants/appTheme';
+import { AppLayout } from '@/constants/appTheme';
+import { colors } from '@/theme';
 import { useSessionStore } from '@/store/sessionStore';
 
 export default function LocationScreen() {
@@ -36,7 +37,7 @@ export default function LocationScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: AppColors.background,
+    backgroundColor: colors.surfacePage,
   },
   content: {
     padding: 20,

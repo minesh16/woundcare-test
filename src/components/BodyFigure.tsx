@@ -2,7 +2,6 @@ import { useId } from 'react';
 import { Platform, View } from 'react-native';
 import Svg, { ClipPath, Defs, G, Path, Text as SvgText } from 'react-native-svg';
 
-import { AppColors } from '@/constants/appTheme';
 import { BODY_ZONE_LABELS, type BodySide } from '@/constants/bodyZones';
 import {
   FIGURE_VIEWBOX,
@@ -12,6 +11,7 @@ import {
   type BodySex,
 } from '@/constants/bodyFigure';
 import { BodyZone } from '@/decision/types';
+import { colors, palette } from '@/theme';
 
 type BodyFigureProps = {
   side: BodySide;
@@ -22,8 +22,8 @@ type BodyFigureProps = {
   maxWidth: number;
 };
 
-const UNSELECTED_FILL = '#C7D3E3';
-const SEAM = '#FFFFFF';
+const UNSELECTED_FILL = palette.neutral200;
+const SEAM = colors.white;
 
 /**
  * One body view. Each region path is its own hit target, so a tap can never
@@ -70,7 +70,7 @@ export function BodyFigure({ side, sex, selectedZone, onSelect, maxWidth }: Body
             const selected = region.id === selectedZone;
             const shape = {
               d: region.d,
-              fill: selected ? AppColors.teal : UNSELECTED_FILL,
+              fill: selected ? colors.primary : UNSELECTED_FILL,
               stroke: SEAM,
               strokeWidth: 1.4,
             };
@@ -106,13 +106,13 @@ export function BodyFigure({ side, sex, selectedZone, onSelect, maxWidth }: Body
           <path
             d={outline}
             fill="none"
-            stroke={AppColors.navy}
+            stroke={palette.primary900}
             strokeWidth={2}
             strokeOpacity={0.8}
             style={{ pointerEvents: 'none' }}
           />
         ) : (
-          <Path d={outline} fill="none" stroke={AppColors.navy} strokeWidth={2} strokeOpacity={0.8} />
+          <Path d={outline} fill="none" stroke={palette.primary900} strokeWidth={2} strokeOpacity={0.8} />
         )}
 
         {/* These swap sides with the view -- that is the point of drawing them. */}
@@ -122,7 +122,7 @@ export function BodyFigure({ side, sex, selectedZone, onSelect, maxWidth }: Body
           fontSize={17}
           fontWeight="700"
           textAnchor="middle"
-          fill={AppColors.textSecondary}>
+          fill={colors.textSecondary}>
           L
         </SvgText>
         <SvgText
@@ -131,7 +131,7 @@ export function BodyFigure({ side, sex, selectedZone, onSelect, maxWidth }: Body
           fontSize={17}
           fontWeight="700"
           textAnchor="middle"
-          fill={AppColors.textSecondary}>
+          fill={colors.textSecondary}>
           R
         </SvgText>
       </Svg>

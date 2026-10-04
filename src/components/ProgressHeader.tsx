@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 
-import { AppColors } from '@/constants/appTheme';
+import { colors, radius, type } from '@/theme';
 
 type ProgressHeaderProps = {
   step: number;
@@ -30,26 +30,22 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   stepLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: AppColors.teal,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    ...type.caption,
+    color: colors.textMuted,
   },
   title: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: AppColors.navy,
+    ...type.headingLg,
+    color: colors.textPrimary,
   },
   track: {
-    height: 6,
-    borderRadius: 999,
-    backgroundColor: AppColors.border,
+    height: 4,
+    borderRadius: radius.sm,
+    backgroundColor: colors.border,
     overflow: 'hidden',
   },
   fill: {
     height: '100%',
-    backgroundColor: AppColors.teal,
-    borderRadius: 999,
+    backgroundColor: colors.primary,
+    borderRadius: radius.sm,
   },
 });

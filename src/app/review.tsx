@@ -16,7 +16,8 @@ import { MaskEditor, type EditorPoint } from '@/components/MaskEditor';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { ProgressHeader } from '@/components/ProgressHeader';
 import { PromptCanvas, SECOND_OPINION_COLOUR, type PromptMode } from '@/components/PromptCanvas';
-import { AppColors } from '@/constants/appTheme';
+import { StatusPill } from '@/components/StatusPill';
+import { clinicalColors, colors, fonts, radius, status, type, type StatusTone } from '@/theme';
 import type { BoundaryProposal } from '@/decision/types';
 import { useSessionStore } from '@/store/sessionStore';
 
@@ -375,7 +376,7 @@ export default function ReviewScreen() {
 
         {proposal?.maskUrl ? (
           <View style={styles.chips}>
-            <Text style={[styles.chip, styles[`chip_${proposal.confidence}`]]}>Confidence: {proposal.confidence}</Text>
+            <StatusPill tone={CONFIDENCE_TONE[proposal.confidence]} label={`Confidence: ${proposal.confidence}`} />
             {source ? <Text style={[styles.chip, styles.chipSource]}>{SOURCE_LABEL[source] ?? source}</Text> : null}
           </View>
         ) : null}
@@ -417,9 +418,9 @@ export default function ReviewScreen() {
                     : 'Use the tools to correct the outline, or approve it.'}
             </Text>
             <View style={styles.modeRow}>
-              <ModeButton label="+ Wound" active={mode === 'include'} onPress={() => setMode(mode === 'include' ? null : 'include')} colour="#16A34A" />
-              <ModeButton label="− Not wound" active={mode === 'exclude'} onPress={() => setMode(mode === 'exclude' ? null : 'exclude')} colour="#DC2626" />
-              <ModeButton label="Box" active={mode === 'box'} onPress={() => setMode(mode === 'box' ? null : 'box')} colour="#2563EB" />
+              <ModeButton label="+ Wound" active={mode === 'include'} onPress={() => setMode(mode === 'include' ? null : 'include')} colour={clinicalColors.tool.include} />
+              <ModeButton label="− Not wound" active={mode === 'exclude'} onPress={() => setMode(mode === 'exclude' ? null : 'exclude')} colour={clinicalColors.tool.exclude} />
+              <ModeButton label="Box" active={mode === 'box'} onPress={() => setMode(mode === 'box' ? null : 'box')} colour={clinicalColors.tool.box} />
             </View>
             {promptCount > 0 ? (
               <View style={styles.modeRow}>
@@ -472,6 +473,13 @@ export default function ReviewScreen() {
   );
 }
 
+/** Confidence is shown in the clinical-signal colours: adequate, review, low. */
+const CONFIDENCE_TONE: Record<'high' | 'medium' | 'low', StatusTone> = {
+  high: 'compliant',
+  medium: 'warning',
+  low: 'risk',
+};
+
 function ModeButton({ label, active, onPress, colour }: { label: string; active: boolean; onPress: () => void; colour: string }) {
   return (
     <Pressable
@@ -479,7 +487,7 @@ function ModeButton({ label, active, onPress, colour }: { label: string; active:
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
       style={[styles.modeButton, { borderColor: colour }, active ? { backgroundColor: colour } : null]}>
-      <Text style={[styles.modeButtonText, { color: active ? AppColors.white : colour }]}>{label}</Text>
+      <Text style={[styles.modeButtonText, { color: active ? colors.white : colour }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -488,7 +496,7 @@ function SecondaryButton({
   label,
   onPress,
   disabled,
-  colour = AppColors.teal,
+  colour = colors.primary,
 }: {
   label: string;
   onPress: () => void;
@@ -500,8 +508,8 @@ function SecondaryButton({
       onPress={onPress}
       disabled={disabled}
       accessibilityRole="button"
-      style={[styles.secondaryButton, { borderColor: disabled ? AppColors.border : colour }]}>
-      <Text style={[styles.secondaryButtonText, { color: disabled ? AppColors.border : colour }]}>{label}</Text>
+      style={[styles.secondaryButton, { borderColor: disabled ? colors.border : colour }]}>
+      <Text style={[styles.secondaryButtonText, { color: disabled ? colors.textDisabled : colour }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -509,7 +517,7 @@ function SecondaryButton({
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: AppColors.background,
+    backgroundColor: colors.surfacePage,
   },
   content: {
     padding: 20,
@@ -517,66 +525,59 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   lead: {
-    fontSize: 16,
+    ...type.bodyLg,
     lineHeight: 23,
-    color: AppColors.text,
+    color: colors.textPrimary,
   },
   chips: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    alignItems: 'center',
     gap: 8,
   },
   chip: {
-    fontSize: 13,
-    fontWeight: '700',
-    paddingVertical: 5,
-    paddingHorizontal: 12,
-    borderRadius: 999,
+    ...type.caption,
+    letterSpacing: 0,
+    paddingVertical: 3,
+    paddingHorizontal: 10,
+    borderRadius: radius.sm,
     overflow: 'hidden',
   },
-  chip_high: {
-    backgroundColor: '#DCFCE7',
-    color: '#166534',
-  },
-  chip_medium: {
-    backgroundColor: '#FEF3C7',
-    color: '#92400E',
-  },
-  chip_low: {
-    backgroundColor: '#FEE2E2',
-    color: '#991B1B',
-  },
   chipSource: {
-    backgroundColor: AppColors.card,
-    color: AppColors.textSecondary,
-    fontWeight: '600',
+    backgroundColor: colors.surfaceCard,
+    borderWidth: 1,
+    borderColor: colors.border,
+    color: colors.textSecondary,
+    fontFamily: fonts.bodySemiBold,
   },
   notice: {
-    backgroundColor: '#FFF7ED',
-    borderRadius: 14,
+    backgroundColor: status.warning.bg,
+    borderRadius: radius.md,
     padding: 14,
     gap: 6,
     borderWidth: 1,
-    borderColor: '#FDBA74',
+    borderColor: status.warning.border,
   },
   noticeTitle: {
+    ...type.headingSm,
     fontSize: 15,
-    fontWeight: '700',
-    color: '#9A3412',
+    fontFamily: fonts.bodyBold,
+    color: status.warning.fg,
   },
   cardBody: {
+    ...type.bodyLg,
     fontSize: 15,
     lineHeight: 22,
-    color: AppColors.text,
+    color: colors.textPrimary,
   },
   cardNote: {
-    fontSize: 13,
+    ...type.bodySm,
     lineHeight: 19,
-    color: AppColors.textSecondary,
+    color: colors.textSecondary,
   },
   legend: {
-    fontSize: 13,
-    color: AppColors.textSecondary,
+    ...type.bodySm,
+    color: colors.textSecondary,
   },
   modeRow: {
     flexDirection: 'row',
@@ -587,31 +588,31 @@ const styles = StyleSheet.create({
     minHeight: 44,
     justifyContent: 'center',
     paddingHorizontal: 16,
-    borderRadius: 999,
+    borderRadius: radius.md,
     borderWidth: 1.5,
   },
   modeButtonText: {
-    fontSize: 14,
-    fontWeight: '700',
+    ...type.bodyMd,
+    fontFamily: fonts.bodyBold,
   },
   warning: {
-    fontSize: 14,
+    ...type.bodyMd,
     lineHeight: 21,
-    color: AppColors.warning,
-    fontWeight: '600',
+    fontFamily: fonts.bodySemiBold,
+    color: status.warning.fg,
   },
   error: {
-    fontSize: 14,
-    color: AppColors.danger,
-    fontWeight: '600',
+    ...type.bodyMd,
+    fontFamily: fonts.bodySemiBold,
+    color: status.risk.fg,
   },
   footer: {
     padding: 20,
     paddingTop: 12,
     gap: 10,
     borderTopWidth: 1,
-    borderTopColor: AppColors.border,
-    backgroundColor: AppColors.white,
+    borderTopColor: colors.border,
+    backgroundColor: colors.surfaceCard,
   },
   secondaryRow: {
     flexDirection: 'row',
@@ -622,19 +623,21 @@ const styles = StyleSheet.create({
     minHeight: 44,
     justifyContent: 'center',
     paddingHorizontal: 14,
-    borderRadius: 999,
+    borderRadius: radius.md,
     borderWidth: 1.5,
     alignItems: 'center',
+    backgroundColor: colors.surfaceCard,
   },
   secondaryButtonText: {
-    fontSize: 14,
-    fontWeight: '700',
+    ...type.bodyMd,
+    fontFamily: fonts.bodyBold,
     textAlign: 'center',
   },
   link: {
+    ...type.bodyLg,
     fontSize: 15,
-    fontWeight: '600',
-    color: AppColors.teal,
+    fontFamily: fonts.bodySemiBold,
+    color: colors.link,
     textAlign: 'center',
   },
 });

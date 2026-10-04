@@ -4,8 +4,8 @@ import { LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-nati
 import Svg, { Circle, Polygon, Rect } from 'react-native-svg';
 
 import type { MeasuredView } from '@/assessment/measured';
-import { AppColors } from '@/constants/appTheme';
 import type { WoundMeasurement } from '@/decision/types';
+import { clinicalColors, colors, fonts, radius, type } from '@/theme';
 
 /**
  * What was measured, drawn on the photo: the approved outline, and the coin the
@@ -66,7 +66,7 @@ export function MeasurementCard({
               <Polygon
                 points={outline.map((p) => `${p.x * fw},${p.y * fh}`).join(' ')}
                 fill="rgba(0, 150, 150, 0.18)"
-                stroke={AppColors.woundEdge}
+                stroke={clinicalColors.woundEdge}
                 // In viewBox (analysis-frame) units, so scale to 3 screen px — a bare 3
                 // shrinks to ~1 px on a phone and the edge vanishes against the wound.
                 strokeWidth={(3 * fw) / box.width}
@@ -127,39 +127,37 @@ export function MeasurementCard({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: AppColors.card,
-    borderRadius: 16,
+    backgroundColor: colors.surfaceCard,
+    borderRadius: radius.md,
     padding: 16,
     gap: 10,
     borderWidth: 1,
-    borderColor: AppColors.border,
+    borderColor: colors.border,
   },
   label: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: AppColors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
+    ...type.caption,
+    color: colors.textSecondary,
   },
   photo: {
     width: '100%',
-    borderRadius: 12,
+    borderRadius: radius.lg,
     overflow: 'hidden',
-    backgroundColor: AppColors.navy,
+    backgroundColor: colors.surfaceInverse,
   },
   body: {
+    ...type.bodyLg,
     fontSize: 15,
     lineHeight: 22,
-    color: AppColors.text,
+    color: colors.textPrimary,
   },
   note: {
-    fontSize: 13,
+    ...type.bodySm,
     lineHeight: 19,
-    color: AppColors.textSecondary,
+    color: colors.textSecondary,
   },
   link: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: AppColors.teal,
+    ...type.bodyMd,
+    fontFamily: fonts.bodySemiBold,
+    color: colors.link,
   },
 });

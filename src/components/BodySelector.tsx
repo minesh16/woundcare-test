@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-na
 
 import { BodyFigure } from '@/components/BodyFigure';
 import { OptionButton, QuestionCard } from '@/components/QuestionCard';
-import { AppColors, AppLayout } from '@/constants/appTheme';
+import { AppLayout } from '@/constants/appTheme';
 import {
   BODY_ZONE_LABELS,
   ZONES_BY_SIDE,
@@ -12,6 +12,7 @@ import {
 } from '@/constants/bodyZones';
 import type { BodySex } from '@/constants/bodyFigure';
 import { BodyZone } from '@/decision/types';
+import { colors, fonts, radius, type } from '@/theme';
 
 type BodySelectorProps = {
   selectedZone: BodyZone | null;
@@ -158,30 +159,30 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   sexLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: AppColors.textSecondary,
+    ...type.bodySm,
+    fontFamily: fonts.bodySemiBold,
+    color: colors.textSecondary,
     marginRight: 2,
   },
   sexPill: {
     borderWidth: 1,
-    borderColor: AppColors.border,
-    borderRadius: 999,
+    borderColor: colors.borderDefault,
+    borderRadius: radius.md,
     paddingVertical: 6,
     paddingHorizontal: 14,
-    backgroundColor: AppColors.white,
+    backgroundColor: colors.surfaceCard,
   },
   sexPillActive: {
-    borderColor: AppColors.teal,
-    backgroundColor: AppColors.tealLight,
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySubtle,
   },
   sexPillText: {
-    fontSize: 13,
-    color: AppColors.textSecondary,
-    fontWeight: '600',
+    ...type.bodySm,
+    fontFamily: fonts.bodySemiBold,
+    color: colors.textSecondary,
   },
   sexPillTextActive: {
-    color: AppColors.navy,
+    color: colors.textPrimary,
   },
   toggleRow: {
     flexDirection: 'row',
@@ -190,22 +191,23 @@ const styles = StyleSheet.create({
   toggle: {
     flex: 1,
     borderWidth: 1,
-    borderColor: AppColors.border,
-    borderRadius: 10,
+    borderColor: colors.borderDefault,
+    borderRadius: radius.md,
     paddingVertical: 10,
     alignItems: 'center',
-    backgroundColor: AppColors.white,
+    backgroundColor: colors.surfaceCard,
   },
   toggleActive: {
-    borderColor: AppColors.teal,
-    backgroundColor: AppColors.tealLight,
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySubtle,
   },
   toggleText: {
-    color: AppColors.textSecondary,
-    fontWeight: '600',
+    ...type.bodyMd,
+    fontFamily: fonts.bodySemiBold,
+    color: colors.textSecondary,
   },
   toggleTextActive: {
-    color: AppColors.navy,
+    color: colors.textPrimary,
   },
   figureRow: {
     flexDirection: 'row',
@@ -213,35 +215,38 @@ const styles = StyleSheet.create({
   },
   figureCard: {
     flex: 1,
-    backgroundColor: AppColors.card,
-    borderRadius: 16,
+    backgroundColor: colors.surfaceCard,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: AppColors.border,
+    borderColor: colors.border,
     padding: 12,
     gap: 8,
   },
   figureCardTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: AppColors.navy,
+    ...type.bodyMd,
+    fontFamily: fonts.bodyBold,
+    color: colors.textPrimary,
     textAlign: 'center',
   },
   caption: {
-    fontSize: 12,
-    color: AppColors.textSecondary,
+    ...type.caption,
+    letterSpacing: 0,
+    color: colors.textSecondary,
     textAlign: 'center',
   },
   chip: {
     alignSelf: 'center',
-    borderRadius: 999,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.primary,
     paddingVertical: 8,
     paddingHorizontal: 16,
-    backgroundColor: AppColors.tealLight,
+    backgroundColor: colors.primarySubtle,
   },
   chipText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: AppColors.navy,
+    ...type.bodyMd,
+    fontFamily: fonts.bodySemiBold,
+    color: colors.textPrimary,
   },
   listToggle: {
     alignSelf: 'center',
@@ -249,8 +254,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   listToggleText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: AppColors.teal,
+    ...type.bodyMd,
+    fontFamily: fonts.bodySemiBold,
+    color: colors.link,
   },
 });

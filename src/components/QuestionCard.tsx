@@ -1,7 +1,7 @@
 import { ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { AppColors } from '@/constants/appTheme';
+import { colors, radius, type } from '@/theme';
 
 type QuestionCardProps = {
   title: string;
@@ -42,36 +42,35 @@ export function OptionButton<T extends string>({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: AppColors.card,
-    borderRadius: 16,
+    backgroundColor: colors.surfaceCard,
+    borderRadius: radius.md,
     padding: 16,
     borderWidth: 1,
-    borderColor: AppColors.border,
+    borderColor: colors.border,
     gap: 12,
   },
   title: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: AppColors.text,
+    ...type.headingSm,
+    color: colors.textPrimary,
   },
   option: {
     borderWidth: 1,
-    borderColor: AppColors.border,
-    borderRadius: 12,
+    borderColor: colors.borderDefault,
+    borderRadius: radius.md,
     paddingVertical: 12,
     paddingHorizontal: 14,
-    backgroundColor: AppColors.background,
+    backgroundColor: colors.surfaceCard,
   },
   optionSelected: {
-    borderColor: AppColors.teal,
-    backgroundColor: AppColors.tealLight,
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySubtle,
   },
   optionText: {
-    fontSize: 15,
-    color: AppColors.text,
+    ...type.bodyLg,
+    lineHeight: 21,
+    color: colors.textPrimary,
   },
   optionTextSelected: {
-    color: AppColors.navy,
-    fontWeight: '600',
+    fontFamily: type.headingSm.fontFamily,
   },
 });

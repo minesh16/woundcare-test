@@ -5,8 +5,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { DisclaimerFooter } from '@/components/DisclaimerFooter';
 import { PrimaryButton } from '@/components/PrimaryButton';
+import { Wordmark } from '@/components/Wordmark';
 import { CONSENT_TEXT, RESEARCH_DISCLAIMER, STEPS } from '@/constants/disclaimers';
-import { AppColors } from '@/constants/appTheme';
+import { colors, fonts, radius, type } from '@/theme';
 import { useSessionStore } from '@/store/sessionStore';
 
 export default function WelcomeScreen() {
@@ -23,7 +24,7 @@ export default function WelcomeScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.hero}>
           <Text style={styles.badge}>La Trobe · SDG 3 research demo</Text>
-          <Text style={styles.title}>WoundCare Demo</Text>
+          <Wordmark size={40} />
           <Text style={styles.subtitle}>{RESEARCH_DISCLAIMER}</Text>
         </View>
 
@@ -59,75 +60,74 @@ export default function WelcomeScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: AppColors.background,
+    backgroundColor: colors.surfacePage,
   },
   content: {
     padding: 20,
     gap: 20,
   },
   hero: {
-    gap: 10,
+    gap: 12,
   },
   badge: {
+    ...type.caption,
     alignSelf: 'flex-start',
-    backgroundColor: AppColors.tealLight,
-    color: AppColors.teal,
-    fontSize: 12,
-    fontWeight: '700',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: '800',
-    color: AppColors.navy,
+    backgroundColor: colors.primarySubtle,
+    color: colors.primary,
+    fontFamily: fonts.bodySemiBold,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.primaryMuted,
+    overflow: 'hidden',
   },
   subtitle: {
+    ...type.bodyLg,
     fontSize: 15,
     lineHeight: 22,
-    color: AppColors.textSecondary,
+    color: colors.textSecondary,
   },
   stepsCard: {
-    backgroundColor: AppColors.white,
-    borderRadius: 16,
+    backgroundColor: colors.surfaceCard,
+    borderRadius: radius.md,
     padding: 16,
     borderWidth: 1,
-    borderColor: AppColors.border,
+    borderColor: colors.border,
     gap: 12,
   },
   sectionTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: AppColors.navy,
+    ...type.headingSm,
+    color: colors.textPrimary,
   },
   stepRow: {
     flexDirection: 'row',
     gap: 12,
   },
   stepNumber: {
+    ...type.dataStrong,
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: AppColors.teal,
-    color: AppColors.white,
+    backgroundColor: colors.primary,
+    color: colors.textOnPrimary,
     textAlign: 'center',
     lineHeight: 28,
-    fontWeight: '700',
+    overflow: 'hidden',
   },
   stepCopy: {
     flex: 1,
     gap: 2,
   },
   stepTitle: {
+    ...type.headingSm,
     fontSize: 15,
-    fontWeight: '700',
-    color: AppColors.text,
+    color: colors.textPrimary,
   },
   stepDescription: {
-    fontSize: 14,
+    ...type.bodyMd,
     lineHeight: 20,
-    color: AppColors.textSecondary,
+    color: colors.textSecondary,
   },
   consentRow: {
     flexDirection: 'row',
@@ -137,19 +137,19 @@ const styles = StyleSheet.create({
   checkbox: {
     width: 22,
     height: 22,
-    borderRadius: 6,
+    borderRadius: radius.sm,
     borderWidth: 2,
-    borderColor: AppColors.border,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.surfaceCard,
     marginTop: 2,
   },
   checkboxChecked: {
-    backgroundColor: AppColors.teal,
-    borderColor: AppColors.teal,
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   consentText: {
-    flex: 1,
-    fontSize: 14,
+    ...type.bodyMd,
     lineHeight: 20,
-    color: AppColors.text,
+    color: colors.textPrimary,
   },
 });

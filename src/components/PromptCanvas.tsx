@@ -5,7 +5,7 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Svg, { Circle, G, Line, Polygon, Rect } from 'react-native-svg';
 
 import type { PromptBox, PromptPoint } from '@/assessment/client';
-import { AppColors } from '@/constants/appTheme';
+import { clinicalColors, colors, radius } from '@/theme';
 
 /**
  * The review screen's photo, with the model's outline and the clinician's
@@ -155,7 +155,7 @@ export function PromptCanvas({
               <Polygon points={secondOutline.map(px).join(' ')} fill="none" stroke={SECOND_OPINION_COLOUR} strokeWidth={2.5} strokeDasharray="7 5" />
             ) : null}
             {outline && outline.length >= 3 ? (
-              <Polygon points={outline.map(px).join(' ')} fill="rgba(0, 150, 150, 0.2)" stroke={AppColors.woundEdge} strokeWidth={3} />
+              <Polygon points={outline.map(px).join(' ')} fill="rgba(0, 150, 150, 0.2)" stroke={clinicalColors.woundEdge} strokeWidth={3} />
             ) : null}
             {shownBox ? (
               <Rect
@@ -164,7 +164,7 @@ export function PromptCanvas({
                 width={(shownBox.x1Pct - shownBox.x0Pct) * size.width}
                 height={(shownBox.y1Pct - shownBox.y0Pct) * size.height}
                 fill="none"
-                stroke="#2563EB"
+                stroke={clinicalColors.tool.box}
                 strokeWidth={2.5}
                 strokeDasharray={draft ? '6 4' : undefined}
               />
@@ -172,7 +172,7 @@ export function PromptCanvas({
             {points.map((p, i) => {
               const cx = p.xPct * size.width;
               const cy = p.yPct * size.height;
-              const colour = p.label === 1 ? '#16A34A' : '#DC2626';
+              const colour = p.label === 1 ? clinicalColors.tool.include : clinicalColors.tool.exclude;
               return (
                 <G key={`p-${i}`}>
                   <Circle cx={cx} cy={cy} r={11} fill={colour} stroke="#FFFFFF" strokeWidth={2} />
@@ -185,7 +185,7 @@ export function PromptCanvas({
         ) : null}
         {busy ? (
           <View style={styles.busy} pointerEvents="none">
-            <ActivityIndicator color={AppColors.white} size="large" />
+            <ActivityIndicator color={colors.white} size="large" />
           </View>
         ) : null}
       </View>
@@ -196,9 +196,9 @@ export function PromptCanvas({
 const styles = StyleSheet.create({
   canvas: {
     width: '100%',
-    borderRadius: 16,
+    borderRadius: radius.lg,
     overflow: 'hidden',
-    backgroundColor: AppColors.navy,
+    backgroundColor: colors.surfaceInverse,
   },
   busy: {
     ...StyleSheet.absoluteFill,

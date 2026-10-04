@@ -3,7 +3,6 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { CLASSIFICATION_LABELS, URGENCY_ACTIONS } from '@/decision/rules';
 import { AssessmentResult } from '@/decision/types';
-import { AppColors } from '@/constants/appTheme';
 import {
   CONFIDENCE_PLAIN,
   EXUDATE_PLAIN,
@@ -14,6 +13,7 @@ import {
 } from '@/copy/plainLanguage';
 import { REFERRAL_COPY, URGENCY_PLAIN } from '@/copy/referrals';
 import type { ExudateLevel, Infection, TissueType } from '@/decision/engine.types';
+import { certificate, colors, fonts, radius, status, type } from '@/theme';
 
 /**
  * The scan result, written for the person holding the phone.
@@ -32,12 +32,12 @@ type ResultPanelProps = {
 export function ResultPanel({ result }: ResultPanelProps) {
   const [clinicianView, setClinicianView] = useState(false);
 
-  const urgencyColor =
+  const urgencyTone =
     result.urgency === 'immediate'
-      ? AppColors.danger
+      ? status.risk
       : result.urgency === 'within_48h'
-        ? AppColors.warning
-        : AppColors.success;
+        ? status.warning
+        : status.compliant;
 
   const referrals = result.referrals ?? [];
   const gateCodes = result.gateCodes ?? [];
@@ -46,9 +46,9 @@ export function ResultPanel({ result }: ResultPanelProps) {
   return (
     <View style={styles.container}>
       {/* 1. What to do -------------------------------------------------- */}
-      <View style={[styles.actionCard, { borderColor: urgencyColor }]}>
+      <View style={[styles.actionCard, { borderColor: urgencyTone.border }]}>
         <Text style={styles.label}>What to do</Text>
-        <Text style={[styles.action, { color: urgencyColor }]}>{URGENCY_ACTIONS[result.urgency]}</Text>
+        <Text style={[styles.action, { color: urgencyTone.fg }]}>{URGENCY_ACTIONS[result.urgency]}</Text>
         {referrals.length > 0 ? (
           <Text style={styles.actionDetail}>
             {REFERRAL_COPY[referrals[0].code]?.whatToDo ?? referrals[0].message}
@@ -152,7 +152,7 @@ export function ResultPanel({ result }: ResultPanelProps) {
       </Pressable>
 
       {clinicianView ? (
-        <View style={styles.card}>
+        <View style={[styles.card, styles.clinicianCard]}>
           <Text style={styles.label}>Clinician view</Text>
           <Text style={styles.mono}>Classification: {CLASSIFICATION_LABELS[result.classification]}</Text>
           <Text style={styles.mono}>
@@ -191,50 +191,55 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   card: {
-    backgroundColor: AppColors.card,
-    borderRadius: 16,
+    backgroundColor: colors.surfaceCard,
+    borderRadius: radius.md,
     padding: 16,
     borderWidth: 1,
-    borderColor: AppColors.border,
+    borderColor: colors.border,
     gap: 6,
   },
   actionCard: {
-    backgroundColor: AppColors.card,
-    borderRadius: 16,
+    backgroundColor: colors.surfaceCard,
+    borderRadius: radius.md,
     padding: 16,
     borderWidth: 2,
     gap: 6,
   },
+  /** The audit-facing record: hairline top rule, no ambient shadow. */
+  clinicianCard: {
+    ...certificate,
+    borderTopColor: colors.borderDefault,
+  },
   label: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: AppColors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
+    ...type.caption,
+    color: colors.textSecondary,
   },
   action: {
+    ...type.headingMd,
     fontSize: 22,
-    fontWeight: '700',
+    lineHeight: 28,
   },
   actionDetail: {
-    fontSize: 16,
+    ...type.bodyLg,
     lineHeight: 23,
-    color: AppColors.text,
+    color: colors.textPrimary,
   },
   body: {
+    ...type.bodyLg,
     fontSize: 15,
     lineHeight: 22,
-    color: AppColors.text,
+    color: colors.textPrimary,
   },
   bodyMuted: {
-    fontSize: 14,
+    ...type.bodyMd,
     lineHeight: 21,
-    color: AppColors.textSecondary,
+    color: colors.textSecondary,
   },
   provenance: {
-    fontSize: 12,
+    ...type.caption,
+    letterSpacing: 0,
     lineHeight: 18,
-    color: AppColors.textSecondary,
+    color: colors.textSecondary,
     marginTop: 4,
   },
   gate: {
@@ -242,27 +247,29 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   gateTitle: {
+    ...type.headingSm,
     fontSize: 15,
-    fontWeight: '700',
-    color: AppColors.text,
+    fontFamily: fonts.bodyBold,
+    color: colors.textPrimary,
   },
   toggle: {
     alignSelf: 'flex-start',
     paddingVertical: 8,
     paddingHorizontal: 14,
-    borderRadius: 999,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: AppColors.border,
+    borderColor: colors.borderDefault,
+    backgroundColor: colors.surfaceCard,
   },
   toggleText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: AppColors.textSecondary,
+    ...type.bodyMd,
+    fontFamily: fonts.bodySemiBold,
+    color: colors.textPrimary,
   },
   mono: {
-    fontSize: 13,
+    ...type.data,
     lineHeight: 19,
-    color: AppColors.text,
+    color: colors.textPrimary,
   },
   rationaleLabel: {
     marginTop: 8,

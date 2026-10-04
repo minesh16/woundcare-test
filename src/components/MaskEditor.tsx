@@ -4,7 +4,7 @@ import { LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-nati
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Svg, { Polygon, Polyline } from 'react-native-svg';
 
-import { AppColors } from '@/constants/appTheme';
+import { clinicalColors, colors, fonts, radius, type } from '@/theme';
 
 /**
  * Editable wound outline over the photo (segmentation spec §3.3, "Edit outline").
@@ -213,7 +213,7 @@ export function MaskEditor({ imageUri, points, onChange, onEdit, referenceOutlin
                 <Polygon
                   points={referenceOutline.map(toPixels).join(' ')}
                   fill="none"
-                  stroke={AppColors.border}
+                  stroke={colors.border}
                   strokeWidth={2}
                   strokeDasharray="6 5"
                 />
@@ -222,11 +222,11 @@ export function MaskEditor({ imageUri, points, onChange, onEdit, referenceOutlin
                 <Polygon
                   points={points.map(toPixels).join(' ')}
                   fill="rgba(0, 150, 150, 0.22)"
-                  stroke={AppColors.woundEdge}
+                  stroke={clinicalColors.woundEdge}
                   strokeWidth={2.5}
                 />
               ) : points.length >= 2 ? (
-                <Polyline points={points.map(toPixels).join(' ')} fill="none" stroke={AppColors.woundEdge} strokeWidth={2.5} />
+                <Polyline points={points.map(toPixels).join(' ')} fill="none" stroke={clinicalColors.woundEdge} strokeWidth={2.5} />
               ) : null}
             </Svg>
           ) : null}
@@ -305,9 +305,9 @@ const styles = StyleSheet.create({
   },
   canvas: {
     width: '100%',
-    borderRadius: 16,
+    borderRadius: radius.lg,
     overflow: 'hidden',
-    backgroundColor: AppColors.navy,
+    backgroundColor: colors.surfaceInverse,
   },
   image: {
     ...StyleSheet.absoluteFill,
@@ -322,31 +322,31 @@ const styles = StyleSheet.create({
     width: HANDLE_SIZE,
     height: HANDLE_SIZE,
     borderRadius: HANDLE_SIZE / 2,
-    backgroundColor: AppColors.white,
+    backgroundColor: colors.white,
     borderWidth: 2.5,
-    borderColor: AppColors.teal,
+    borderColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
   handleSelected: {
-    backgroundColor: AppColors.navy,
-    borderColor: AppColors.white,
+    backgroundColor: colors.surfaceInverse,
+    borderColor: colors.white,
     transform: [{ scale: 1.25 }],
   },
   handleLabel: {
+    fontFamily: fonts.monoSemiBold,
     fontSize: 11,
-    fontWeight: '700',
-    color: AppColors.teal,
+    color: colors.primary,
   },
   handleLabelSelected: {
-    color: AppColors.white,
+    color: colors.white,
   },
   toolbar: {
     gap: 10,
   },
   hint: {
-    fontSize: 14,
-    color: AppColors.textSecondary,
+    ...type.bodyMd,
+    color: colors.textSecondary,
   },
   buttonRow: {
     flexDirection: 'row',
@@ -357,19 +357,20 @@ const styles = StyleSheet.create({
     minHeight: 44,
     justifyContent: 'center',
     paddingHorizontal: 18,
-    borderRadius: 999,
+    borderRadius: radius.md,
     borderWidth: 1.5,
-    borderColor: AppColors.teal,
+    borderColor: colors.primary,
+    backgroundColor: colors.surfaceCard,
   },
   smallButtonDisabled: {
-    borderColor: AppColors.border,
+    borderColor: colors.border,
   },
   smallButtonText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: AppColors.teal,
+    ...type.bodyMd,
+    fontFamily: fonts.bodyBold,
+    color: colors.primary,
   },
   smallButtonTextDisabled: {
-    color: AppColors.border,
+    color: colors.textDisabled,
   },
 });

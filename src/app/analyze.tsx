@@ -11,7 +11,7 @@ import { segmentRemote, type SegmentResponse } from '@/assessment/client';
 import { analyzeWoundBase64, uriToBase64 } from '@/cv/opencvPipeline';
 import { toBoundaryProposal } from '@/assessment/proposal';
 import { formatArea } from '@/cv/measureArea';
-import { AppColors } from '@/constants/appTheme';
+import { clinicalColors, colors, fonts, radius, status, type } from '@/theme';
 import { TISSUE_CLASS_CLINICAL, TISSUE_CLASS_PLAIN } from '@/copy/plainLanguage';
 import { useSessionStore } from '@/store/sessionStore';
 
@@ -132,7 +132,7 @@ export default function AnalyzeScreen() {
 
         {loading ? (
           <View style={styles.loadingBox}>
-            <ActivityIndicator color={AppColors.teal} size="large" />
+            <ActivityIndicator color={colors.primary} size="large" />
             <Text style={styles.loadingText}>Looking at your photo…</Text>
           </View>
         ) : null}
@@ -156,11 +156,11 @@ export default function AnalyzeScreen() {
             ) : (
               <>
                 <Text style={styles.metricTitle}>What the wound bed is made of</Text>
-                <MetricBar label={TISSUE_CLASS_PLAIN.granulation} value={cv.granulationPercent} color="#D64545" />
-                <MetricBar label={TISSUE_CLASS_PLAIN.slough} value={cv.sloughPercent} color="#E8B923" />
-                <MetricBar label={TISSUE_CLASS_PLAIN.necrosis} value={cv.necrosisPercent} color="#4A3728" />
-                <MetricBar label={TISSUE_CLASS_PLAIN.epithelial} value={cv.epithelialPercent} color="#F4A9B8" />
-                <MetricBar label={TISSUE_CLASS_PLAIN.other} value={cv.otherPercent} color="#94A3B8" />
+                <MetricBar label={TISSUE_CLASS_PLAIN.granulation} value={cv.granulationPercent} color={clinicalColors.tissue.granulation} />
+                <MetricBar label={TISSUE_CLASS_PLAIN.slough} value={cv.sloughPercent} color={clinicalColors.tissue.slough} />
+                <MetricBar label={TISSUE_CLASS_PLAIN.necrosis} value={cv.necrosisPercent} color={clinicalColors.tissue.necrosis} />
+                <MetricBar label={TISSUE_CLASS_PLAIN.epithelial} value={cv.epithelialPercent} color={clinicalColors.tissue.epithelial} />
+                <MetricBar label={TISSUE_CLASS_PLAIN.other} value={cv.otherPercent} color={clinicalColors.tissue.other} />
 
                 <Text style={styles.detail}>
                   {cv.areaCm2
@@ -289,7 +289,7 @@ function MetricBar({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: AppColors.background,
+    backgroundColor: colors.surfacePage,
   },
   content: {
     padding: 20,
@@ -302,34 +302,35 @@ const styles = StyleSheet.create({
   image: {
     width: '100%',
     height: 260,
-    borderRadius: 16,
-    backgroundColor: AppColors.border,
+    borderRadius: radius.lg,
+    backgroundColor: colors.border,
   },
   maskOverlay: {
     position: 'absolute',
     top: 0,
     left: 0,
     opacity: 0.35,
-    tintColor: '#10B981',
+    tintColor: clinicalColors.maskTint,
   },
   caption: {
-    fontSize: 13,
+    ...type.bodySm,
     lineHeight: 19,
-    color: AppColors.textSecondary,
+    color: colors.textSecondary,
   },
   toggle: {
     alignSelf: 'flex-start',
     marginTop: 10,
     paddingVertical: 8,
     paddingHorizontal: 14,
-    borderRadius: 999,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: AppColors.border,
+    borderColor: colors.borderDefault,
+    backgroundColor: colors.surfaceCard,
   },
   toggleText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: AppColors.textSecondary,
+    ...type.bodyMd,
+    fontFamily: fonts.bodySemiBold,
+    color: colors.textPrimary,
   },
   technicalBlock: {
     marginTop: 8,
@@ -341,23 +342,24 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   loadingText: {
-    color: AppColors.textSecondary,
+    ...type.bodyMd,
+    color: colors.textSecondary,
   },
   error: {
-    color: AppColors.danger,
+    ...type.bodyMd,
+    color: status.risk.fg,
   },
   metricsCard: {
-    backgroundColor: AppColors.white,
-    borderRadius: 16,
+    backgroundColor: colors.surfaceCard,
+    borderRadius: radius.md,
     padding: 16,
     borderWidth: 1,
-    borderColor: AppColors.border,
+    borderColor: colors.border,
     gap: 10,
   },
   metricTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: AppColors.navy,
+    ...type.headingSm,
+    color: colors.textPrimary,
   },
   metricRow: {
     flexDirection: 'row',
@@ -365,30 +367,30 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   metricLabel: {
+    ...type.bodySm,
     width: 90,
-    fontSize: 13,
-    color: AppColors.textSecondary,
+    color: colors.textSecondary,
   },
   metricTrack: {
     flex: 1,
     height: 8,
-    backgroundColor: AppColors.border,
-    borderRadius: 999,
+    backgroundColor: colors.surfaceSunken,
+    borderRadius: radius.sm,
     overflow: 'hidden',
   },
   metricFill: {
     height: '100%',
-    borderRadius: 999,
+    borderRadius: radius.sm,
   },
   metricValue: {
-    width: 36,
+    ...type.dataStrong,
+    width: 40,
     textAlign: 'right',
-    fontWeight: '700',
-    color: AppColors.text,
+    color: colors.textPrimary,
   },
   detail: {
-    fontSize: 14,
-    color: AppColors.textSecondary,
+    ...type.bodyMd,
+    color: colors.textSecondary,
   },
   footer: {
     paddingHorizontal: 20,

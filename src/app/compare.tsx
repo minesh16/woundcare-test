@@ -5,7 +5,7 @@ import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-nat
 import { DisclaimerFooter } from '@/components/DisclaimerFooter';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { ProgressHeader } from '@/components/ProgressHeader';
-import { AppColors } from '@/constants/appTheme';
+import { colors, fonts, radius, status, type } from '@/theme';
 import { ASSESSMENT_V2 } from '@/config/featureFlags';
 import { baselineRemote, runAssessmentStream } from '@/assessment/client';
 import type { AssessmentState, StepOutcome } from '@/assessment/state';
@@ -120,7 +120,7 @@ export default function CompareScreen() {
 
         {running ? (
           <View style={styles.steps}>
-            <ActivityIndicator color={AppColors.teal} />
+            <ActivityIndicator color={colors.primary} />
             {steps.map((step) => (
               <Text key={`${step.step}-${step.ms}`} style={styles.step}>
                 {step.status === 'ok' ? '✓' : step.status === 'degraded' ? '•' : '✕'} {step.step} — {step.summary} (
@@ -213,26 +213,26 @@ export default function CompareScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: AppColors.background },
+  container: { flex: 1, backgroundColor: colors.surfacePage },
   content: { padding: 20, gap: 14 },
   column: {
-    backgroundColor: AppColors.card,
-    borderRadius: 16,
+    backgroundColor: colors.surfaceCard,
+    borderRadius: radius.md,
     padding: 16,
     borderWidth: 1,
-    borderColor: AppColors.border,
+    borderColor: colors.border,
     gap: 6,
   },
-  groundedColumn: { borderColor: AppColors.teal, borderWidth: 2 },
-  columnTitle: { fontSize: 15, fontWeight: '700', color: AppColors.navy },
-  prose: { fontSize: 14, lineHeight: 21, color: AppColors.text },
-  fact: { fontSize: 14, lineHeight: 21, color: AppColors.text, fontWeight: '600' },
-  meta: { fontSize: 12, lineHeight: 18, color: AppColors.textSecondary },
+  groundedColumn: { borderColor: colors.primary, borderWidth: 2 },
+  columnTitle: { ...type.headingSm, fontSize: 15, fontFamily: fonts.bodyBold, color: colors.textPrimary },
+  prose: { ...type.bodyMd, lineHeight: 21, color: colors.textPrimary },
+  fact: { ...type.bodyMd, lineHeight: 21, fontFamily: fonts.bodySemiBold, color: colors.textPrimary },
+  meta: { ...type.data, fontSize: 12, color: colors.textSecondary },
   steps: { gap: 4, paddingVertical: 8 },
-  step: { fontSize: 13, color: AppColors.textSecondary },
-  warning: { fontSize: 13, color: AppColors.warning },
-  error: { fontSize: 13, color: AppColors.danger },
-  footnote: { fontSize: 13, lineHeight: 20, color: AppColors.textSecondary, marginTop: 4 },
-  savedNote: { fontSize: 12, lineHeight: 18, color: AppColors.textSecondary, textAlign: 'center' },
+  step: { ...type.bodySm, color: colors.textSecondary },
+  warning: { ...type.bodySm, color: status.warning.fg },
+  error: { ...type.bodySm, color: status.risk.fg },
+  footnote: { ...type.bodySm, lineHeight: 20, color: colors.textSecondary, marginTop: 4 },
+  savedNote: { ...type.caption, letterSpacing: 0, lineHeight: 18, color: colors.textSecondary, textAlign: 'center' },
   footer: { paddingHorizontal: 20, paddingBottom: 12, gap: 8 },
 });

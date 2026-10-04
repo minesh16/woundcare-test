@@ -1,10 +1,10 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { MeasuredView } from '@/assessment/measured';
-import { AppColors } from '@/constants/appTheme';
 import { TISSUE_CLASS_PLAIN, TISSUE_CLINICAL } from '@/copy/plainLanguage';
 import { TISSUE_PRESENCE_THRESHOLD } from '@/decision/engine';
 import type { ClinicianTissueChoice } from '@/decision/engine.types';
+import { clinicalColors, colors, fonts, radius, type } from '@/theme';
 
 /**
  * Tissue confirmation (segmentation build spec §4.3) — before any pathway is
@@ -39,10 +39,10 @@ export function TissueConfirmCard({
   onSelect: (choice: ClinicianTissueChoice) => void;
 }) {
   const rows: { label: string; value: number; color: string }[] = [
-    { label: TISSUE_CLASS_PLAIN.granulation, value: view.granulationPercent, color: '#D64545' },
-    { label: TISSUE_CLASS_PLAIN.slough, value: view.sloughPercent, color: '#E8B923' },
-    { label: TISSUE_CLASS_PLAIN.necrosis, value: view.necrosisPercent, color: '#4A3728' },
-    { label: TISSUE_CLASS_PLAIN.epithelial, value: view.epithelialPercent, color: '#F4A9B8' },
+    { label: TISSUE_CLASS_PLAIN.granulation, value: view.granulationPercent, color: clinicalColors.tissue.granulation },
+    { label: TISSUE_CLASS_PLAIN.slough, value: view.sloughPercent, color: clinicalColors.tissue.slough },
+    { label: TISSUE_CLASS_PLAIN.necrosis, value: view.necrosisPercent, color: clinicalColors.tissue.necrosis },
+    { label: TISSUE_CLASS_PLAIN.epithelial, value: view.epithelialPercent, color: clinicalColors.tissue.epithelial },
   ];
 
   return (
@@ -90,29 +90,27 @@ export function TissueConfirmCard({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: AppColors.card,
-    borderRadius: 16,
+    backgroundColor: colors.surfaceCard,
+    borderRadius: radius.md,
     padding: 16,
     gap: 10,
     borderWidth: 1,
-    borderColor: AppColors.border,
+    borderColor: colors.border,
   },
   label: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: AppColors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
+    ...type.caption,
+    color: colors.textSecondary,
   },
   body: {
+    ...type.bodyLg,
     fontSize: 15,
     lineHeight: 22,
-    color: AppColors.text,
+    color: colors.textPrimary,
   },
   note: {
-    fontSize: 13,
+    ...type.bodySm,
     lineHeight: 19,
-    color: AppColors.textSecondary,
+    color: colors.textSecondary,
   },
   row: {
     flexDirection: 'row',
@@ -120,26 +118,26 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   rowLabel: {
+    ...type.bodySm,
     width: 120,
-    fontSize: 13,
-    color: AppColors.textSecondary,
+    color: colors.textSecondary,
   },
   track: {
     flex: 1,
     height: 8,
-    backgroundColor: AppColors.border,
-    borderRadius: 999,
+    backgroundColor: colors.surfaceSunken,
+    borderRadius: radius.sm,
     overflow: 'hidden',
   },
   fill: {
     height: '100%',
-    borderRadius: 999,
+    borderRadius: radius.sm,
   },
   rowValue: {
-    width: 40,
+    ...type.dataStrong,
+    width: 44,
     textAlign: 'right',
-    fontWeight: '700',
-    color: AppColors.text,
+    color: colors.textPrimary,
   },
   choices: {
     gap: 8,
@@ -149,20 +147,23 @@ const styles = StyleSheet.create({
     minHeight: 44,
     justifyContent: 'center',
     paddingHorizontal: 14,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: AppColors.border,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    backgroundColor: colors.surfaceCard,
   },
   choiceActive: {
-    borderColor: AppColors.teal,
-    backgroundColor: 'rgba(0, 150, 150, 0.08)',
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySubtle,
   },
   choiceText: {
+    ...type.bodyLg,
     fontSize: 15,
-    color: AppColors.text,
+    lineHeight: 21,
+    color: colors.textPrimary,
   },
   choiceTextActive: {
-    fontWeight: '700',
-    color: AppColors.teal,
+    fontFamily: fonts.bodyBold,
+    color: colors.primary,
   },
 });

@@ -17,7 +17,7 @@ import { measuredView } from '@/assessment/measured';
 import { assess } from '@/decision/rules';
 import { evaluate, reconcileTissue } from '@/decision/engine';
 import { toEngineInputs } from '@/decision/rules';
-import { AppColors } from '@/constants/appTheme';
+import { colors, radius, type } from '@/theme';
 import { logTissueConfirmationRemote, runAssessmentStream } from '@/assessment/client';
 import type { ReportPair, StepOutcome } from '@/assessment/state';
 import type { ClinicianTissueChoice, EngineResult, TissueType } from '@/decision/engine.types';
@@ -262,7 +262,7 @@ export default function ResultScreen() {
         ) : awaitingDecision ? (
           <View style={styles.runCard}>
             <View style={styles.runHeader}>
-              <ActivityIndicator color={AppColors.teal} />
+              <ActivityIndicator color={colors.primary} />
               <Text style={styles.runTitle}>Working out the result</Text>
             </View>
             {steps.map((step, index) => (
@@ -289,7 +289,7 @@ export default function ResultScreen() {
             {running ? (
               <View style={styles.runCard}>
                 <View style={styles.runHeader}>
-                  <ActivityIndicator color={AppColors.teal} />
+                  <ActivityIndicator color={colors.primary} />
                   <Text style={styles.runTitle}>Writing the summary</Text>
                 </View>
                 <Text style={styles.runNote}>
@@ -359,15 +359,15 @@ export default function ResultScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: AppColors.background,
+    backgroundColor: colors.surfacePage,
   },
   runCard: {
-    backgroundColor: AppColors.card,
-    borderRadius: 16,
+    backgroundColor: colors.surfaceCard,
+    borderRadius: radius.md,
     padding: 16,
     gap: 8,
     borderWidth: 1,
-    borderColor: AppColors.border,
+    borderColor: colors.border,
   },
   runHeader: {
     flexDirection: 'row',
@@ -375,51 +375,48 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   runTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: AppColors.navy,
+    ...type.headingSm,
+    color: colors.textPrimary,
   },
   runStep: {
-    fontSize: 14,
-    color: AppColors.text,
+    ...type.bodyMd,
+    color: colors.textPrimary,
   },
   runNote: {
-    fontSize: 13,
+    ...type.bodySm,
     lineHeight: 19,
-    color: AppColors.textSecondary,
+    color: colors.textSecondary,
   },
   boundaryNote: {
-    fontSize: 13,
-    color: AppColors.textSecondary,
+    ...type.bodySm,
+    color: colors.textSecondary,
   },
   content: {
     padding: 20,
     gap: 16,
   },
   aiCard: {
-    backgroundColor: AppColors.card,
-    borderRadius: 16,
+    backgroundColor: colors.surfaceCard,
+    borderRadius: radius.md,
     padding: 16,
     borderWidth: 1,
-    borderColor: AppColors.border,
+    borderColor: colors.border,
     gap: 6,
   },
   aiLabel: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: AppColors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
+    ...type.caption,
+    color: colors.textSecondary,
   },
   aiBody: {
+    ...type.bodyLg,
     fontSize: 15,
     lineHeight: 22,
-    color: AppColors.text,
+    color: colors.textPrimary,
   },
   aiMeta: {
+    ...type.data,
     fontSize: 12,
-    lineHeight: 18,
-    color: AppColors.textSecondary,
+    color: colors.textSecondary,
   },
   footer: {
     paddingHorizontal: 20,

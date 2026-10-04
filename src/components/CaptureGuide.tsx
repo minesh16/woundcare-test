@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 
-import { AppColors } from '@/constants/appTheme';
+import { colors, fonts, radius, type } from '@/theme';
 
 export function CaptureGuide() {
   return (
@@ -16,19 +16,21 @@ export function CaptureGuide() {
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: AppColors.tealLight,
-    borderRadius: 12,
+    backgroundColor: colors.primarySubtle,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.primaryMuted,
     padding: 14,
     gap: 6,
   },
   title: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: AppColors.navy,
+    ...type.bodyMd,
+    fontFamily: fonts.bodyBold,
+    color: colors.textPrimary,
   },
   item: {
-    fontSize: 13,
-    color: AppColors.textSecondary,
+    ...type.bodySm,
     lineHeight: 18,
+    color: colors.textSecondary,
   },
 });

@@ -8,7 +8,7 @@ import { CaptureGuide } from '@/components/CaptureGuide';
 import { DisclaimerFooter } from '@/components/DisclaimerFooter';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { ProgressHeader } from '@/components/ProgressHeader';
-import { AppColors } from '@/constants/appTheme';
+import { colors, fonts, radius, status, type } from '@/theme';
 import { useSessionStore } from '@/store/sessionStore';
 
 export default function CaptureScreen() {
@@ -89,7 +89,7 @@ export default function CaptureScreen() {
             <Text style={styles.toggleTitle}>Include 20c coin for scale</Text>
             <Text style={styles.toggleHint}>Place a coin beside the wound in the photo.</Text>
           </View>
-          <Switch value={includeCoin} onValueChange={setIncludeCoin} trackColor={{ true: AppColors.teal }} />
+          <Switch value={includeCoin} onValueChange={setIncludeCoin} trackColor={{ true: colors.primary }} />
         </View>
 
         {/* Research log (spec §4.1): decides whether outline images may be kept
@@ -135,10 +135,10 @@ const styles = StyleSheet.create({
   sourceCard: {
     gap: 8,
     padding: 14,
-    borderRadius: 14,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: AppColors.border,
-    backgroundColor: AppColors.white,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceCard,
   },
   sourceRow: {
     flexDirection: 'row',
@@ -149,25 +149,26 @@ const styles = StyleSheet.create({
     minHeight: 44,
     justifyContent: 'center',
     paddingHorizontal: 14,
-    borderRadius: 999,
-    borderWidth: 1.5,
-    borderColor: AppColors.border,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.borderDefault,
+    backgroundColor: colors.surfaceCard,
   },
   sourceChipActive: {
-    borderColor: AppColors.teal,
-    backgroundColor: 'rgba(0, 150, 150, 0.08)',
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySubtle,
   },
   sourceChipText: {
-    fontSize: 14,
-    color: AppColors.text,
+    ...type.bodyMd,
+    color: colors.textPrimary,
   },
   sourceChipTextActive: {
-    fontWeight: '700',
-    color: AppColors.teal,
+    fontFamily: fonts.bodyBold,
+    color: colors.primary,
   },
   container: {
     flex: 1,
-    backgroundColor: AppColors.background,
+    backgroundColor: colors.surfacePage,
   },
   content: {
     padding: 20,
@@ -175,7 +176,7 @@ const styles = StyleSheet.create({
   },
   cameraWrap: {
     height: 320,
-    borderRadius: 16,
+    borderRadius: radius.lg,
     overflow: 'hidden',
     position: 'relative',
     backgroundColor: '#000',
@@ -191,47 +192,50 @@ const styles = StyleSheet.create({
     height: '40%',
     borderWidth: 2,
     borderColor: 'rgba(255,255,255,0.8)',
-    borderRadius: 12,
+    borderRadius: radius.lg,
   },
   placeholder: {
     height: 220,
-    borderRadius: 16,
+    borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: AppColors.border,
-    backgroundColor: AppColors.white,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceCard,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 16,
   },
   placeholderText: {
+    ...type.bodyMd,
     textAlign: 'center',
-    color: AppColors.textSecondary,
+    color: colors.textSecondary,
     lineHeight: 20,
   },
   toggleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    backgroundColor: AppColors.white,
-    borderRadius: 12,
+    backgroundColor: colors.surfaceCard,
+    borderRadius: radius.md,
     padding: 14,
     borderWidth: 1,
-    borderColor: AppColors.border,
+    borderColor: colors.border,
   },
   toggleCopy: {
     flex: 1,
     gap: 4,
   },
   toggleTitle: {
-    fontWeight: '700',
-    color: AppColors.text,
+    ...type.bodyMd,
+    fontFamily: fonts.bodyBold,
+    color: colors.textPrimary,
   },
   toggleHint: {
-    fontSize: 13,
-    color: AppColors.textSecondary,
+    ...type.bodySm,
+    lineHeight: 18,
+    color: colors.textSecondary,
   },
   error: {
-    color: AppColors.danger,
-    fontSize: 14,
+    ...type.bodyMd,
+    color: status.risk.fg,
   },
 });
