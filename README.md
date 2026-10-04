@@ -1,4 +1,4 @@
-# WoundCare Demo (Expo)
+# MendWise (Expo)
 
 Project path: `/Users/minesh/Agents/woundcare-test` (moved from OneDrive to avoid apostrophe path issues with CocoaPods).
 

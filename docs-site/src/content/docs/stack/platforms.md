@@ -10,7 +10,7 @@ From [`app.json`](https://github.com/minesh16/woundcare-test/blob/main/app.json)
 
 | Field | Value |
 |---|---|
-| Expo name | WoundCare Demo |
+| Expo name | MendWise |
 | slug | `woundcare-test` |
 | version | `1.0.0` |
 | iOS bundle id | `edu.latrobe.woundcaredemo` |

@@ -1,5 +1,5 @@
 export const RESEARCH_DISCLAIMER =
-  'WoundCare Demo is a La Trobe University research prototype. It is not a medical device, not for clinical use, and does not replace professional wound assessment.';
+  'MendWise is a La Trobe University research prototype. It is not a medical device, not for clinical use, and does not replace professional wound assessment.';
 
 export const SHORT_DISCLAIMER =
   'Research prototype · not for clinical use · does not replace professional assessment';

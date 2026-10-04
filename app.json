@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "WoundCare Demo",
+    "name": "MendWise",
     "slug": "woundcare-test",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -11,14 +11,14 @@
       "icon": "./assets/expo.icon",
       "bundleIdentifier": "edu.latrobe.woundcaredemo",
       "infoPlist": {
-        "NSCameraUsageDescription": "WoundCare Demo uses the camera to capture wound photos for research demonstration only.",
-        "NSPhotoLibraryUsageDescription": "WoundCare Demo lets you choose an existing wound photo for research demonstration only."
+        "NSCameraUsageDescription": "MendWise uses the camera to capture wound photos for research demonstration only.",
+        "NSPhotoLibraryUsageDescription": "MendWise lets you choose an existing wound photo for research demonstration only."
       }
     },
     "android": {
       "package": "edu.latrobe.woundcaredemo",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F5F3",
+        "backgroundColor": "#081F5C",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -38,19 +38,19 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow WoundCare Demo to access your camera for research demonstration photos."
+          "cameraPermission": "Allow MendWise to access your camera for research demonstration photos."
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow WoundCare Demo to access your photos for research demonstration."
+          "photosPermission": "Allow MendWise to access your photos for research demonstration."
         }
       ],
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#0B2545",
+          "backgroundColor": "#081F5C",
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
         }
