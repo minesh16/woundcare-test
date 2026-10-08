@@ -2,12 +2,22 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { useRef, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import {
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 
 import { CaptureGuide } from '@/components/CaptureGuide';
 import { DisclaimerFooter } from '@/components/DisclaimerFooter';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { ProgressHeader } from '@/components/ProgressHeader';
+import { AppLayout } from '@/constants/appTheme';
 import { colors, fonts, radius, status, type } from '@/theme';
 import { useSessionStore } from '@/store/sessionStore';
 
@@ -18,6 +28,12 @@ export default function CaptureScreen() {
   // did carry a coin was reported as having no size reference.
   const [includeCoin, setIncludeCoin] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [cameraReady, setCameraReady] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
+  // Leave room for the nav header and pinned buttons, so the whole preview fits
+  // on short phone screens (and under mobile browser chrome) without scrolling.
+  const { height: windowHeight } = useWindowDimensions();
+  const cameraHeight = Math.max(220, Math.min(320, windowHeight - 340));
   const setImage = useSessionStore((state) => state.setImage);
   const imageSource = useSessionStore((state) => state.session.imageSource);
   const setImageSource = useSessionStore((state) => state.setImageSource);
@@ -33,24 +49,36 @@ export default function CaptureScreen() {
     setError(null);
 
     if (!permission?.granted) {
+      // Granting only mounts the preview; capturing in the same tap hit a null
+      // camera ref and always failed. The user frames, then taps again.
       const result = await requestPermission();
       if (!result.granted) {
         setError('Camera permission is required. Use gallery instead.');
-        return;
       }
-    }
-
-    // On web the returned uri is a base64 data URI (no local filesystem path).
-    const photo = await cameraRef.current?.takePictureAsync({
-      quality: 0.85,
-      base64: Platform.OS === 'web',
-    });
-    if (!photo?.uri) {
-      setError('Could not capture photo. Try again.');
       return;
     }
 
-    proceedWithUri(photo.uri);
+    try {
+      // On web the returned uri is a base64 data URI (no local filesystem path).
+      const photo = await cameraRef.current?.takePictureAsync({
+        quality: 0.85,
+        base64: Platform.OS === 'web',
+      });
+      if (photo?.uri) {
+        proceedWithUri(photo.uri);
+        return;
+      }
+    } catch {
+      // Fall through to the retry message.
+    }
+    setError('Could not capture photo. Try again.');
+  };
+
+  // Once the preview is live, bring it fully on screen: it sits last in the
+  // scroll content, directly above the pinned capture buttons.
+  const onCameraReady = () => {
+    setCameraReady(true);
+    requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
   };
 
   const pickFromGallery = async () => {
@@ -67,23 +95,12 @@ export default function CaptureScreen() {
 
   return (
     <View style={styles.container}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView ref={scrollRef} contentContainerStyle={styles.content}>
         <ProgressHeader step={1} title="Capture wound photo" />
         <CaptureGuide />
 
-        {permission?.granted ? (
-          <View style={styles.cameraWrap}>
-            <CameraView ref={cameraRef} style={styles.camera} facing="back" />
-            <View style={styles.guideBox} />
-          </View>
-        ) : (
-          <View style={styles.placeholder}>
-            <Text style={styles.placeholderText}>
-              Camera permission needed. Allow access or choose from gallery.
-            </Text>
-          </View>
-        )}
-
+        {/* Settings come before the preview so the preview sits directly above
+            the pinned buttons — framing and shooting never need a scroll. */}
         <View style={styles.toggleRow}>
           <View style={styles.toggleCopy}>
             <Text style={styles.toggleTitle}>Include 20c coin for scale</Text>
@@ -121,12 +138,43 @@ export default function CaptureScreen() {
           </View>
         </View>
 
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-
-        <PrimaryButton label="Take photo" onPress={takePhoto} />
-        <PrimaryButton label="Choose from gallery" onPress={pickFromGallery} variant="secondary" />
+        {permission?.granted ? (
+          <View style={[styles.cameraWrap, { height: cameraHeight }]}>
+            <CameraView
+              ref={cameraRef}
+              style={styles.camera}
+              facing="back"
+              onCameraReady={onCameraReady}
+            />
+            <View style={styles.guideBox} />
+          </View>
+        ) : (
+          <View style={styles.placeholder}>
+            <Text style={styles.placeholderText}>
+              Camera permission needed. Allow access or choose from gallery.
+            </Text>
+          </View>
+        )}
       </ScrollView>
-      <DisclaimerFooter />
+
+      <View style={styles.footer}>
+        {error ? <Text style={styles.error}>{error}</Text> : null}
+        <View style={styles.actionRow}>
+          <PrimaryButton
+            label="Gallery"
+            onPress={pickFromGallery}
+            variant="secondary"
+            style={styles.galleryButton}
+          />
+          <PrimaryButton
+            label={permission?.granted ? 'Take photo' : 'Enable camera'}
+            onPress={takePhoto}
+            disabled={permission?.granted === true && !cameraReady}
+            style={styles.shutterButton}
+          />
+        </View>
+        <DisclaimerFooter />
+      </View>
     </View>
   );
 }
@@ -173,9 +221,31 @@ const styles = StyleSheet.create({
   content: {
     padding: 20,
     gap: 16,
+    width: '100%',
+    maxWidth: AppLayout.maxContentWidth,
+    alignSelf: 'center',
+  },
+  footer: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 12,
+    gap: 8,
+    width: '100%',
+    maxWidth: AppLayout.maxContentWidth,
+    alignSelf: 'center',
+  },
+  actionRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  galleryButton: {
+    flex: 1,
+    paddingHorizontal: 12,
+  },
+  shutterButton: {
+    flex: 2,
   },
   cameraWrap: {
-    height: 320,
     borderRadius: radius.lg,
     overflow: 'hidden',
     position: 'relative',
