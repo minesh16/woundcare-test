@@ -2,12 +2,13 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { router } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { DisclaimerFooter } from '@/components/DisclaimerFooter';
 import { MeasurementCard } from '@/components/MeasurementCard';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { ProgressHeader } from '@/components/ProgressHeader';
+import { WaitingNotice } from '@/components/WaitingNotice';
 import { ResultPanel } from '@/components/ResultPanel';
 import { TissueConfirmCard } from '@/components/TissueConfirmCard';
 import { ASSESSMENT_V2 } from '@/config/featureFlags';
@@ -261,10 +262,10 @@ export default function ResultScreen() {
           </>
         ) : awaitingDecision ? (
           <View style={styles.runCard}>
-            <View style={styles.runHeader}>
-              <ActivityIndicator color={colors.primary} />
-              <Text style={styles.runTitle}>Working out the result</Text>
-            </View>
+            <WaitingNotice
+              message="Working out the result"
+              slowHint="The server can take longer when it has been idle. Please keep this screen open."
+            />
             {steps.map((step, index) => (
               <Text key={`${step.step}-${index}`} style={styles.runStep}>
                 {step.status === 'ok' ? '✓' : '·'} {step.summary}
@@ -288,10 +289,7 @@ export default function ResultScreen() {
 
             {running ? (
               <View style={styles.runCard}>
-                <View style={styles.runHeader}>
-                  <ActivityIndicator color={colors.primary} />
-                  <Text style={styles.runTitle}>Writing the summary</Text>
-                </View>
+                <WaitingNotice message="Writing the summary" />
                 <Text style={styles.runNote}>
                   The result above is final. This step adds the written summary and records the assessment.
                 </Text>
@@ -368,15 +366,6 @@ const styles = StyleSheet.create({
     gap: 8,
     borderWidth: 1,
     borderColor: colors.border,
-  },
-  runHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  runTitle: {
-    ...type.headingSm,
-    color: colors.textPrimary,
   },
   runStep: {
     ...type.bodyMd,

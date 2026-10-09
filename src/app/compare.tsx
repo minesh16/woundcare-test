@@ -114,7 +114,8 @@ export default function CompareScreen() {
 
         <PrimaryButton
           label={running ? 'Running both…' : 'Run both on this photo'}
-          disabled={running || !session.imageUri}
+          disabled={!session.imageUri}
+          loading={running}
           onPress={run}
         />
 

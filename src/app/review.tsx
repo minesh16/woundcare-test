@@ -17,6 +17,7 @@ import { PrimaryButton } from '@/components/PrimaryButton';
 import { ProgressHeader } from '@/components/ProgressHeader';
 import { PromptCanvas, SECOND_OPINION_COLOUR, type PromptMode } from '@/components/PromptCanvas';
 import { StatusPill } from '@/components/StatusPill';
+import { WaitingNotice } from '@/components/WaitingNotice';
 import { clinicalColors, colors, fonts, radius, status, type, type StatusTone } from '@/theme';
 import type { BoundaryProposal } from '@/decision/types';
 import { useSessionStore } from '@/store/sessionStore';
@@ -39,6 +40,9 @@ import { useSessionStore } from '@/store/sessionStore';
 
 type Screen = 'review' | 'edit';
 type Intent = 'adjusted' | 'drawn';
+
+const SERVER_SLOW_HINT = 'The server can take longer when it has been idle. Your outline is kept.';
+const SEGMENT_SLOW_HINT = 'The outline model can take a minute or more when it has been idle.';
 
 const SOURCE_LABEL: Record<string, string> = {
   sam3: 'SAM 3 (general model, prompted for a wound)',
@@ -277,6 +281,7 @@ export default function ReviewScreen() {
   const saveEdited = async () => {
     setBusy(true);
     setError(null);
+    setStatus('Saving your outline…');
     // Rasterise at the photo's own proportions (1024 on the longer edge), so a
     // portrait photo does not lose vertical resolution in the mask.
     const frame = proposal?.frame;
@@ -290,12 +295,14 @@ export default function ReviewScreen() {
     });
     if (!result.ok) {
       setBusy(false);
+      setStatus(null);
       setError(result.error);
       return;
     }
     if (result.data.plausibility !== 'plausible' && !warning) {
       // Advisory, not a block: the clinician is the authority on this screen.
       setBusy(false);
+      setStatus(null);
       setWarning(
         `That outline covers ${result.data.areaPct}% of the photo — ${result.data.plausibilityReason}. Tap Save again to use it anyway, or keep editing.`,
       );
@@ -341,12 +348,13 @@ export default function ReviewScreen() {
           ) : null}
           {warning ? <Text style={styles.warning}>{warning}</Text> : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
-          {status ? <Text style={styles.legend}>{status}</Text> : null}
         </ScrollView>
         <View style={styles.footer}>
+          {busy ? <WaitingNotice message={status ?? 'Saving…'} resetKey={status ?? undefined} slowHint={SERVER_SLOW_HINT} /> : null}
           <PrimaryButton
-            label={busy ? status ?? 'Saving…' : warning ? 'Save anyway' : 'Save outline'}
-            disabled={points.length < 3 || busy}
+            label={busy ? 'Please wait…' : warning ? 'Save anyway' : 'Save outline'}
+            disabled={points.length < 3}
+            loading={busy}
             onPress={saveEdited}
           />
           <Pressable onPress={() => setScreen('review')} accessibilityRole="button" disabled={busy}>
@@ -442,15 +450,21 @@ export default function ReviewScreen() {
         ) : null}
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
-        {status ? <Text style={styles.legend}>{status}</Text> : null}
       </ScrollView>
 
       <View style={styles.footer}>
+        {/* In the footer, not the scroll body, so the wait is always in view. */}
+        {busy ? (
+          <WaitingNotice message={status ?? 'Saving…'} resetKey={status ?? undefined} slowHint={SERVER_SLOW_HINT} />
+        ) : segmenting ? (
+          <WaitingNotice message="Updating the outline…" slowHint={SEGMENT_SLOW_HINT} />
+        ) : null}
         {proposal?.maskUrl ? (
           <>
             <PrimaryButton
-              label={busy ? status ?? 'Saving…' : modelsDisagree ? 'Approve the yellow outline' : 'Approve this outline'}
-              disabled={busy || segmenting}
+              label={busy ? 'Please wait…' : modelsDisagree ? 'Approve the yellow outline' : 'Approve this outline'}
+              disabled={segmenting}
+              loading={busy}
               onPress={approveShown}
             />
             {modelsDisagree && opinion ? (

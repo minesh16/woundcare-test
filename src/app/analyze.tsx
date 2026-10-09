@@ -1,11 +1,12 @@
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { DisclaimerFooter } from '@/components/DisclaimerFooter';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { ProgressHeader } from '@/components/ProgressHeader';
+import { WaitingNotice } from '@/components/WaitingNotice';
 import { ASSESSMENT_V2 } from '@/config/featureFlags';
 import { segmentRemote, type SegmentResponse } from '@/assessment/client';
 import { analyzeWoundBase64, uriToBase64 } from '@/cv/opencvPipeline';
@@ -32,6 +33,8 @@ export default function AnalyzeScreen() {
   const setBoundaryProposal = useSessionStore((state) => state.setBoundaryProposal);
   const setImageBase64 = useSessionStore((state) => state.setImageBase64);
   const [loading, setLoading] = useState(true);
+  // What the wait is on right now; segmentation is the long one.
+  const [stage, setStage] = useState('Preparing your photo…');
   const [error, setError] = useState<string | null>(null);
   const [segment, setSegment] = useState<SegmentResponse | null>(null);
   const [technical, setTechnical] = useState(false);
@@ -47,11 +50,13 @@ export default function AnalyzeScreen() {
     (async () => {
       try {
         setLoading(true);
+        setStage('Preparing your photo…');
         // Encode ONCE: every later call sends these exact bytes, and the
         // clinician's approval is bound to their hash.
         const base64 = await uriToBase64(session.imageUri!);
         if (cancelled) return;
         setImageBase64(base64);
+        setStage('Checking photo quality…');
 
         // The colour pass: capture quality gate (and the legacy measurement
         // when assessmentV2 is off).
@@ -59,6 +64,7 @@ export default function AnalyzeScreen() {
         if (!cancelled) setCvResult(result);
 
         if (!ASSESSMENT_V2) return;
+        if (!cancelled) setStage('Finding the wound outline…');
         // The draft outline. The location decides whether FUSegNet gives a
         // second opinion (foot wounds). No colour centroid is sent any more:
         // when it was wrong, so was the outline (spec §3.2).
@@ -132,8 +138,11 @@ export default function AnalyzeScreen() {
 
         {loading ? (
           <View style={styles.loadingBox}>
-            <ActivityIndicator color={colors.primary} size="large" />
-            <Text style={styles.loadingText}>Looking at your photo…</Text>
+            <WaitingNotice
+              message={stage}
+              resetKey={stage}
+              slowHint="The outline model can take a minute or more when it has been idle. Please keep this screen open."
+            />
           </View>
         ) : null}
 
@@ -254,7 +263,8 @@ export default function AnalyzeScreen() {
       <View style={styles.footer}>
         <PrimaryButton
           label={ASSESSMENT_V2 ? 'Check the outline' : 'Continue to questions'}
-          disabled={!cv || loading}
+          disabled={!cv}
+          loading={loading}
           // With assessmentV2 on, the boundary goes to a clinician before anything
           // is measured inside it. With it off, the old route is unchanged —
           // additive, never destructive.
@@ -337,13 +347,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   loadingBox: {
-    alignItems: 'center',
-    gap: 10,
     paddingVertical: 12,
-  },
-  loadingText: {
-    ...type.bodyMd,
-    color: colors.textSecondary,
   },
   error: {
     ...type.bodyMd,
